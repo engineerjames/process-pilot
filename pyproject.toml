@@ -8,12 +8,67 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 pydantic = "^2.10.2"
+pyyaml = "^6.0.2"
 
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.1"
 pytest = "^8.3.3"
+ruff = "^0.8.0"
+mypy = "^1.13.0"
+autopep8 = "^2.3.1"
+types-pyyaml = "^6.0.12.20240917"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+# Global options
+strict = true                # Enable strict mode for maximum type checking
+disallow_untyped_defs = true # Disallow functions and methods without type annotations
+warn_unused_ignores = true   # Warn about unused # type: ignore comments
+no_implicit_optional = true  # Don't assume that variables can be None unless explicitly annotated
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["S101"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+fix = true
+select = [
+    "ALL", # include all the rules, including new ones
+]
+ignore = [
+    #### modules
+    "ANN", # flake8-annotations
+    "COM", # flake8-commas
+    "C90", # mccabe complexity
+    "DJ",  # django
+    "EXE", # flake8-executable
+    "T10", # debugger
+    "TID", # flake8-tidy-imports
+
+    #### specific rules
+    "D100",   # ignore missing docs
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "D105",
+    "D106",
+    "D107",
+    "D200",
+    "D205",
+    "D212",
+    "D400",
+    "D401",
+    "D415",
+    "E402",   # false positives for local imports
+    "E501",   # line too long
+    "TRY003", # external messages in exceptions are too verbose
+    "TD002",
+    "TD003",
+    "FIX002", # too verbose descriptions of todos
+]
