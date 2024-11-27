@@ -1,0 +1,4 @@
+processes:
+  - path: "sleep"
+    args: ["5"]
+    timeout: 1.0

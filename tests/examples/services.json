@@ -1,0 +1,9 @@
+{
+  "processes": [
+    {
+      "path": "sleep",
+      "args": ["5"],
+      "timeout": 3
+    }
+  ]
+}
