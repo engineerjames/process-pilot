@@ -1,4 +1,12 @@
+"""Utility functions and classes for calculating speed.
+
+This module provides:
+- FasterThanLightError: exception when FTL speed is calculated;
+- calculate_speed: calculate speed given distance and time.
+"""
+
 import json
+import logging
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -24,7 +32,7 @@ class Process(BaseModel):
     path: Path
     args: list[str] = Field(default=[])
     timeout: float | None = None
-    shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
+    shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.SHUTDOWN_EVERYTHING
     dependencies: list["Process"] = Field(default=[])
 
 
@@ -53,25 +61,42 @@ class ProcessPilot:
         self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
+        # Configure the logger
+        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+
     def start(self) -> None:
         """ """
         try:
+            logging.debug("Starting process pilot")
+
             for entry in self.manifest.processes:
                 command = [str(entry.path), *entry.args]
-                new_popen_result = subprocess.Popen(command, encoding="utf-8")
+                logging.debug("Executing command: %s", command)
+                new_popen_result = subprocess.Popen(command, encoding="utf-8")  # noqa: S603
                 self._processes.append((entry, new_popen_result))
 
+            logging.debug("Entering main execution loop")
             while not self._shutting_down:
+                processes_to_remove: list[Process] = []
+
                 for process_entry, process in self._processes:
                     result = process.poll()
+
                     if result is None:
                         continue
 
+                    logging.warning(
+                        "Process has shutdown: %s", entry.path
+                    )  # TODO: Automatically create the 'command' parameter
                     # exited
                     # log exited process
                     # need to remove exited process
+                    logging.info("Processing shutdown strategy: %s", process_entry.shutdown_strategy)
+                    processes_to_remove.append(process_entry)
+
                     match process_entry.shutdown_strategy:
                         case ShutdownStrategy.SHUTDOWN_EVERYTHING:
+                            logging.warning("%s crashed - shutting down everything.", entry)
                             self.stop()
                         case ShutdownStrategy.DO_NOT_RESTART:
                             pass
@@ -79,14 +104,23 @@ class ProcessPilot:
                             self._processes.append(
                                 (
                                     process_entry,
-                                    subprocess.Popen([str(process_entry.path), *process_entry.args], encoding="utf-8"),
+                                    subprocess.Popen([str(process_entry.path), *process_entry.args], encoding="utf-8"),  # noqa: S603
                                 )
                             )
                         case _:
-                            pass
+                            logging.error("Shutdown strategy not handled: %s", process_entry.shutdown_strategy)
+
+                for p in processes_to_remove:
+                    processes_to_investigate = [(proc, popen) for (proc, popen) in self._processes if proc == p]
+
+                    for proc_to_inv in processes_to_investigate:
+                        if proc_to_inv[1].returncode is not None:
+                            logging.debug("Removing process with output: %s", proc_to_inv[1].communicate())
+                            self._processes.remove(proc_to_inv)
 
                 sleep(self.poll_interval)
         except KeyboardInterrupt:
+            logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
 
     def stop(self) -> None:
@@ -98,6 +132,7 @@ class ProcessPilot:
             try:
                 process.wait(process_entry.timeout)
             except subprocess.TimeoutExpired:
+                logging.warning("Detected timeout for %s: forceably killing.", process_entry)
                 process.kill()
 
 
