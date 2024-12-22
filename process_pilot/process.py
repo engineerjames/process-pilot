@@ -23,7 +23,8 @@ class ShutdownStrategy(str, Enum):
 
 
 class ProcessHooks(str, Enum):
-    ON_START = "on_start"
+    PRE_START = "pre_start"
+    POST_START = "post_start"
     ON_SHUTDOWN = "on_shutdown"
     ON_RESTART = "on_restart"
 
