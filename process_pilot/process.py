@@ -124,6 +124,7 @@ class ProcessPilot:
 
     def _process_loop(self) -> None:
         processes_to_remove: list[Process] = []
+        processes_to_add: list[tuple[Process, subprocess.Popen[str]]] = []
 
         for process_entry, process in self._processes:
             result = process.poll()
@@ -152,11 +153,11 @@ class ProcessPilot:
                     # Intentionally do nothing
                     pass
                 case ShutdownStrategy.RESTART:
-                    self._processes.append(
+                    processes_to_add.append(
                         (
                             process_entry,
                             subprocess.Popen(process_entry.command, encoding="utf-8"),  # noqa: S603
-                        )
+                        ),
                     )
                 case _:
                     logging.error(
@@ -165,6 +166,7 @@ class ProcessPilot:
                     )
 
         self._remove_processes(processes_to_remove)
+        self._processes.extend(processes_to_add)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:
         for p in processes_to_remove:
