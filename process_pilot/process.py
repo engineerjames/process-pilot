@@ -1,14 +1,9 @@
-"""
-Utility functions and classes for calculating speed.
-
-This module provides:
-- FasterThanLightError: exception when FTL speed is calculated;
-- calculate_speed: calculate speed given distance and time.
-"""
+"""Main classes and definitions for ProcessPilot."""
 
 import json
 import logging
 import subprocess
+from ast import Call
 from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
@@ -26,7 +21,7 @@ class ShutdownStrategy(str, Enum):
     SHUTDOWN_EVERYTHING = "shutdown_everything"  # Take down everything else with it
 
 
-class ProcessHooks(str, Enum):
+class ProcessHookType(str, Enum):
     """Enumeration that describes when a given hook is to be executed."""
 
     PRE_START = "pre_start"
@@ -35,14 +30,24 @@ class ProcessHooks(str, Enum):
     ON_RESTART = "on_restart"
 
 
+class InvalidHookTypeError(Exception):
+    """Custom exception for invalid hook types."""
+
+    def __init__(self, hook_type: ProcessHookType) -> None:
+        """Construct custom exception for invalid hook types."""
+        super().__init__(f"Hook type provided is invalid: {hook_type}")
+
+
 class Process(BaseModel):
     """Pydantic model of an individual process that is being managed."""
 
+    name: str
     path: Path
     args: list[str] = Field(default=[])
     timeout: float | None = None
-    shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.SHUTDOWN_EVERYTHING
+    shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
     dependencies: list["Process"] = Field(default=[])
+    hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
     pre_start_hooks: list[Callable[["Process"], None]] = Field(default=[])
     post_start_hooks: list[Callable[["Process"], None]] = Field(default=[])
     on_shutdown_hooks: list[Callable[["Process"], None]] = Field(default=[])
@@ -50,8 +55,31 @@ class Process(BaseModel):
 
     @property
     def command(self) -> list[str]:
-        """Return the path to the executable along with all arguments."""
+        """
+        Return the path to the executable along with all arguments.
+
+        :returns: A combined list of strings that contains both the executable path and all arguments
+        """
         return [str(self.path), *self.args]
+
+    def register_hook(
+        self,
+        hook_type: ProcessHookType,
+        callback: Callable[["Process"], None] | list[Callable[["Process"], None]],
+    ) -> None:
+        """
+        Register a callback for a particular process.
+
+        :param hook_type: The type of hook to register the callback for
+        :param callback: The function to call or a list of functions to call
+        """
+        if hook_type not in self.hooks:
+            self.hooks[hook_type] = []
+
+        if isinstance(callback, list):
+            self.hooks[hook_type].extend(callback)
+        else:
+            self.hooks[hook_type].append(callback)
 
 
 class ProcessManifest(BaseModel):
@@ -111,7 +139,10 @@ class ProcessPilot:
                     "Executing command: %s",
                     entry.command,
                 )
+
+                ProcessPilot._execute_hooks(entry, ProcessHookType.PRE_START)
                 new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
+                ProcessPilot._execute_hooks(entry, ProcessHookType.POST_START)
                 self._processes.append((entry, new_popen_result))
 
             logging.debug("Entering main execution loop")
@@ -121,6 +152,16 @@ class ProcessPilot:
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
+
+    @staticmethod
+    def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
+        if hook_type not in process.hooks or len(process.hooks[hook_type]) == 0:
+            logging.warning("No %s hooks available for %s", hook_type, process.name)
+            return
+
+        logging.debug("Executing hooks for %s", process.name)
+        for hook in process.hooks[hook_type]:
+            hook(process)  # TODO: Change signature of hooks?
 
     def _process_loop(self) -> None:
         processes_to_remove: list[Process] = []
@@ -133,32 +174,44 @@ class ProcessPilot:
             if result is None:
                 continue
 
-            logging.warning(
-                "Process has shutdown: %s",
-                process_entry.path,
-            )
-
-            logging.warning(
-                "Processing shutdown strategy: %s",
-                process_entry.shutdown_strategy,
-            )
-
             processes_to_remove.append(process_entry)
+
+            ProcessPilot._execute_hooks(process_entry, ProcessHookType.ON_SHUTDOWN)
 
             match process_entry.shutdown_strategy:
                 case ShutdownStrategy.SHUTDOWN_EVERYTHING:
-                    logging.warning("%s crashed - shutting down everything.", process_entry)
+                    logging.warning(
+                        "%s shutdown with return code %i - shutting down everything.",
+                        process_entry,
+                        process.returncode,
+                    )
                     self.stop()
                 case ShutdownStrategy.DO_NOT_RESTART:
-                    # Intentionally do nothing
-                    pass
+                    logging.warning(
+                        "%s shutdown with return code %i.",
+                        process_entry,
+                        process.returncode,
+                    )
                 case ShutdownStrategy.RESTART:
+                    logging.warning(
+                        "%s shutdown with return code %i.  Restarting...",
+                        process_entry,
+                        process.returncode,
+                    )
+
+                    logging.debug(
+                        "Running command %s",
+                        process_entry.command,
+                    )
+
                     processes_to_add.append(
                         (
                             process_entry,
                             subprocess.Popen(process_entry.command, encoding="utf-8"),  # noqa: S603
                         ),
                     )
+
+                    ProcessPilot._execute_hooks(process_entry, ProcessHookType.ON_RESTART)
                 case _:
                     logging.error(
                         "Shutdown strategy not handled: %s",
@@ -173,10 +226,11 @@ class ProcessPilot:
             processes_to_investigate = [(proc, popen) for (proc, popen) in self._processes if proc == p]
 
             for proc_to_inv in processes_to_investigate:
-                if proc_to_inv[1].returncode is not None:
+                _, popen_obj = proc_to_inv
+                if popen_obj.returncode is not None:
                     logging.debug(
                         "Removing process with output: %s",
-                        proc_to_inv[1].communicate(),
+                        popen_obj.communicate(),
                     )
                     self._processes.remove(proc_to_inv)
 
