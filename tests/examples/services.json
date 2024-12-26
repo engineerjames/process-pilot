@@ -4,7 +4,8 @@
       "name": "example",
       "path": "sleep",
       "args": ["5"],
-      "timeout": 3
+      "timeout": 3,
+      "shutdown_strategy": "do_not_restart"
     }
   ]
 }

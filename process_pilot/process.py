@@ -3,7 +3,6 @@
 import json
 import logging
 import subprocess
-from ast import Call
 from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
@@ -48,10 +47,6 @@ class Process(BaseModel):
     shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
     dependencies: list["Process"] = Field(default=[])
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
-    pre_start_hooks: list[Callable[["Process"], None]] = Field(default=[])
-    post_start_hooks: list[Callable[["Process"], None]] = Field(default=[])
-    on_shutdown_hooks: list[Callable[["Process"], None]] = Field(default=[])
-    on_restart_hooks: list[Callable[["Process"], None]] = Field(default=[])
 
     @property
     def command(self) -> list[str]:
@@ -148,7 +143,13 @@ class ProcessPilot:
             logging.debug("Entering main execution loop")
             while not self._shutting_down:
                 self._process_loop()
+
                 sleep(self.poll_interval)
+
+                if not self._processes:
+                    logging.warning("No running processes to manage--shutting down.")
+                    self.stop()
+
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
@@ -156,12 +157,12 @@ class ProcessPilot:
     @staticmethod
     def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
         if hook_type not in process.hooks or len(process.hooks[hook_type]) == 0:
-            logging.warning("No %s hooks available for %s", hook_type, process.name)
+            logging.warning("No %s hooks available for process: '%s'", hook_type, process.name)
             return
 
-        logging.debug("Executing hooks for %s", process.name)
+        logging.debug("Executing hooks for process: '%s'", process.name)
         for hook in process.hooks[hook_type]:
-            hook(process)  # TODO: Change signature of hooks?
+            hook(process)
 
     def _process_loop(self) -> None:
         processes_to_remove: list[Process] = []
