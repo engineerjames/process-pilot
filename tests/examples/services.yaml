@@ -1,4 +1,6 @@
 processes:
-  - path: "sleep"
-    args: ["5"]
+  - name: example
+    path: sleep
+    args: [5]
     timeout: 1.0
+    shutdown_strategy: do_not_restart
