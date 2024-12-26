@@ -83,14 +83,31 @@ class Process(BaseModel):
     """Pydantic model of an individual process that is being managed."""
 
     name: str
+    """The name of the process."""
+
     path: Path
+    """The path to the executable that will be run."""
+
     args: list[str] = Field(default=[])
+    """The arguments to pass to the executable when it is run."""
+
     timeout: float | None = None
+    """The amount of time to wait for the process to exit before forcibly killing it."""
+
     shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
+    """The strategy to use when the process exits.  If not specified, the default is to restart the process."""
+
     dependencies: list[str] | list["Process"] = Field(default=[])
+    """
+    A list of dependencies that must be started before this process can be started.
+    This is a list of other names in the manifest.
+    """
+
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
+    """A series of functions to call at various points in the process lifecycle."""
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
+    """Runtime information about the process"""
 
     @property
     def command(self) -> list[str]:
@@ -147,8 +164,18 @@ class ProcessManifest(BaseModel):
         """
         process_dict = {process.name: process for process in self.processes}
 
+        process_name_set: set[str] = set()
+
         for process in self.processes:
             resolved_dependencies = []
+
+            # Ensure no duplicate names in the manifest
+            if process.name in process_name_set:
+                error_message = f"Duplicate process name found: {process.name}"
+                raise ValueError(error_message)
+
+            process_name_set.add(process.name)
+
             for dep_name in process.dependencies:
                 if dep_name in process_dict and isinstance(dep_name, str):
                     resolved_dependencies.append(process_dict[dep_name])
@@ -158,6 +185,31 @@ class ProcessManifest(BaseModel):
 
             process.dependencies = resolved_dependencies
 
+        return self
+
+    @model_validator(mode="after")
+    def order_dependencies(self) -> "ProcessManifest":
+        """
+        Orders the process list based on the dependencies of each process.
+
+        :returns: The updated manifest with ordered dependencies
+        """
+        ordered_processes = []
+        visited = set()
+
+        def visit(process: Process) -> None:
+            if process.name in visited:
+                return
+            visited.add(process.name)
+            for dep in process.dependencies:
+                if isinstance(dep, Process):
+                    visit(dep)
+            ordered_processes.append(process)
+
+        for process in self.processes:
+            visit(process)
+
+        self.processes = ordered_processes
         return self
 
     @classmethod
