@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 from pytest_mock import MockerFixture
 
-from process_pilot.process import ProcessManifest, ProcessPilot
+from process_pilot.process import Process, ProcessHookType, ProcessManifest, ProcessPilot, ShutdownStrategy
 
 
 def test_can_load_json() -> None:
@@ -100,3 +100,66 @@ def test_process_pilot_initialization(sample_process_manifest: ProcessManifest) 
     pilot: ProcessPilot = ProcessPilot(manifest=sample_process_manifest)
     assert len(pilot._manifest.processes) == 2
     assert pilot._poll_interval == 0.1  # Default value
+
+
+def test_process_initialization() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+        args=["--arg1", "value1"],
+        timeout=10.0,
+        shutdown_strategy=ShutdownStrategy.RESTART,
+        dependencies=["dep1", "dep2"],
+    )
+
+    assert process.name == "test_process"
+    assert process.path == Path("/mock/path/to/executable")
+    assert process.args == ["--arg1", "value1"]
+    assert process.timeout == 10.0
+    assert process.shutdown_strategy == ShutdownStrategy.RESTART
+    assert process.dependencies == ["dep1", "dep2"]
+    assert process.hooks == {}
+
+
+def test_process_command_property() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+        args=["--arg1", "value1"],
+    )
+
+    assert process.command == ["/mock/path/to/executable", "--arg1", "value1"]
+
+
+def test_process_register_hook() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+    )
+
+    def mock_hook(process: Process) -> None:
+        pass
+
+    process.register_hook(ProcessHookType.PRE_START, mock_hook)
+    assert len(process.hooks[ProcessHookType.PRE_START]) == 1
+    assert process.hooks[ProcessHookType.PRE_START][0] == mock_hook
+
+    process.register_hook(ProcessHookType.PRE_START, [mock_hook, mock_hook])
+    assert len(process.hooks[ProcessHookType.PRE_START]) == 3
+
+
+def test_process_record_process_stats(mocker: MockerFixture) -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+    )
+
+    mock_psutil_process = mocker.patch("psutil.Process")
+    mock_psutil_instance = mock_psutil_process.return_value
+    mock_psutil_instance.memory_info.return_value = mock.Mock(rss=1048576)  # 1 MB
+    mock_psutil_instance.cpu_percent.return_value = 10.0
+
+    process.record_process_stats(1234)
+
+    assert process._runtime_info.memory_usage_mb == 1.0
+    assert process._runtime_info.cpu_usage_percent == 10.0
