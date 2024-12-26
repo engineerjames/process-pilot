@@ -91,5 +91,5 @@ def test_process_manifest_from_yaml(mocker: MockerFixture) -> None:
 # Test case for initializing ProcessPilot with a mock manifest
 def test_process_pilot_initialization(sample_process_manifest: ProcessManifest) -> None:
     pilot: ProcessPilot = ProcessPilot(manifest=sample_process_manifest)
-    assert len(pilot.manifest.processes) == 2
-    assert pilot.poll_interval == 0.1  # Default value
+    assert len(pilot._manifest.processes) == 2
+    assert pilot._poll_interval == 0.1  # Default value

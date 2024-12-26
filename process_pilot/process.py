@@ -117,8 +117,8 @@ class ProcessPilot:
         :param manifest: Manifest that contains a definition for each process
         :param poll_interval: The amount of time to wait in-between service checks
         """
-        self.manifest = manifest
-        self.poll_interval = poll_interval
+        self._manifest = manifest
+        self._poll_interval = poll_interval
         self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
@@ -135,7 +135,7 @@ class ProcessPilot:
             while not self._shutting_down:
                 self._process_loop()
 
-                sleep(self.poll_interval)
+                sleep(self._poll_interval)
 
                 if not self._processes:
                     logging.warning("No running processes to manage--shutting down.")
@@ -147,7 +147,7 @@ class ProcessPilot:
 
     def _initialize_processes(self) -> None:
         """Initialize all processes prior to entering the monitoring loop."""
-        for entry in self.manifest.processes:
+        for entry in self._manifest.processes:
             logging.debug(
                 "Executing command: %s",
                 entry.command,
