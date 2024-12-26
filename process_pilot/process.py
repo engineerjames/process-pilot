@@ -87,7 +87,7 @@ class Process(BaseModel):
     args: list[str] = Field(default=[])
     timeout: float | None = None
     shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
-    dependencies: list["Process"] = Field(default=[])
+    dependencies: list[str] = Field(default=[])
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()

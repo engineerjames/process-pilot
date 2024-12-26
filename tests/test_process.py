@@ -49,12 +49,19 @@ def sample_process_manifest() -> ProcessManifest:
     process_data = {
         "processes": [
             {
+                "name": "test_process",
                 "path": "mock/path/to/service",
                 "args": ["--arg1", "value1"],
                 "timeout": 10.0,
                 "shutdown_strategy": "restart",
             },
-            {"path": "mock/path/to/service2", "args": [], "timeout": 5.0, "shutdown_strategy": "do_not_restart"},
+            {
+                "name": "test_process_2",
+                "path": "mock/path/to/service2",
+                "args": [],
+                "timeout": 5.0,
+                "shutdown_strategy": "do_not_restart",
+            },
         ],
     }
     return ProcessManifest(**process_data)  # type: ignore[arg-type]
@@ -63,7 +70,7 @@ def sample_process_manifest() -> ProcessManifest:
 # Test case for ProcessManifest loading from JSON
 def test_process_manifest_from_json(mocker: MockerFixture) -> None:
     mock_json_path: Path = Path("/mock/path/to/manifest.json")
-    mock_json_data: str = '{"processes":[{"path":"mock/path/to/service"}]}'
+    mock_json_data: str = '{"processes":[{"name": "test", "path":"mock/path/to/service"}]}'
 
     mocker.patch.object(Path, "open", mocker.mock_open(read_data=mock_json_data))
     manifest: ProcessManifest = ProcessManifest.from_json(mock_json_path)
@@ -75,7 +82,7 @@ def test_process_manifest_from_json(mocker: MockerFixture) -> None:
 # Test case for ProcessManifest loading from YAML
 def test_process_manifest_from_yaml(mocker: MockerFixture) -> None:
     mock_yaml_path: Path = Path("/mock/path/to/manifest.yaml")
-    mock_yaml_data: str = "processes:\n  - path: mock/path/to/service\n"
+    mock_yaml_data: str = "processes:\n  - path: mock/path/to/service\n\n    name: test"
 
     # Patch Path.open() instead of builtins.open to mock file reading
     mocker.patch.object(Path, "open", mocker.mock_open(read_data=mock_yaml_data))
