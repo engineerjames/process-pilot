@@ -137,7 +137,7 @@ def test_process_record_process_stats_no_such_process(mocker: MockerFixture) -> 
         path=Path("/mock/path/to/executable"),
     )
 
-    mock_psutil_process = mocker.patch("psutil.Process", side_effect=psutil.NoSuchProcess(pid=1234))
+    _ = mocker.patch("psutil.Process", side_effect=psutil.NoSuchProcess(pid=1234))
 
     process.record_process_stats(1234)
 
@@ -145,14 +145,14 @@ def test_process_record_process_stats_no_such_process(mocker: MockerFixture) -> 
     assert process._runtime_info.cpu_usage_percent == 0.0
 
 
-def test_process_manifest_from_json_invalid_path(mocker: MockerFixture) -> None:
+def test_process_manifest_from_json_invalid_path() -> None:
     mock_json_path: Path = Path("/invalid/path/to/manifest.json")
 
     with pytest.raises(FileNotFoundError):
         ProcessManifest.from_json(mock_json_path)
 
 
-def test_process_manifest_from_yaml_invalid_path(mocker: MockerFixture) -> None:
+def test_process_manifest_from_yaml_invalid_path() -> None:
     mock_yaml_path: Path = Path("/invalid/path/to/manifest.yaml")
 
     with pytest.raises(FileNotFoundError):
