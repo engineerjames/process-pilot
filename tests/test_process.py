@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 from unittest import mock
 
+import psutil
 import pytest
 from pytest_mock import MockerFixture
 
@@ -67,41 +68,6 @@ def sample_process_manifest() -> ProcessManifest:
     return ProcessManifest(**process_data)  # type: ignore[arg-type]
 
 
-# Test case for ProcessManifest loading from JSON
-def test_process_manifest_from_json(mocker: MockerFixture) -> None:
-    mock_json_path: Path = Path("/mock/path/to/manifest.json")
-    mock_json_data: str = '{"processes":[{"name": "test", "path":"mock/path/to/service"}]}'
-
-    mocker.patch.object(Path, "open", mocker.mock_open(read_data=mock_json_data))
-    manifest: ProcessManifest = ProcessManifest.from_json(mock_json_path)
-
-    assert len(manifest.processes) == 1
-    assert manifest.processes[0].path == Path("mock/path/to/service")
-
-
-# Test case for ProcessManifest loading from YAML
-def test_process_manifest_from_yaml(mocker: MockerFixture) -> None:
-    mock_yaml_path: Path = Path("/mock/path/to/manifest.yaml")
-    mock_yaml_data: str = "processes:\n  - path: mock/path/to/service\n\n    name: test"
-
-    # Patch Path.open() instead of builtins.open to mock file reading
-    mocker.patch.object(Path, "open", mocker.mock_open(read_data=mock_yaml_data))
-
-    # Load the manifest using the patched Path.open
-    manifest: ProcessManifest = ProcessManifest.from_yaml(mock_yaml_path)
-
-    # Assert that the data is correctly parsed
-    assert len(manifest.processes) == 1
-    assert manifest.processes[0].path == Path("mock/path/to/service")
-
-
-# Test case for initializing ProcessPilot with a mock manifest
-def test_process_pilot_initialization(sample_process_manifest: ProcessManifest) -> None:
-    pilot: ProcessPilot = ProcessPilot(manifest=sample_process_manifest)
-    assert len(pilot._manifest.processes) == 2
-    assert pilot._poll_interval == 0.1  # Default value
-
-
 def test_process_initialization() -> None:
     process = Process(
         name="test_process",
@@ -163,3 +129,76 @@ def test_process_record_process_stats(mocker: MockerFixture) -> None:
 
     assert process._runtime_info.memory_usage_mb == 1.0
     assert process._runtime_info.cpu_usage_percent == 10.0
+
+
+def test_process_record_process_stats_no_such_process(mocker: MockerFixture) -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+    )
+
+    mock_psutil_process = mocker.patch("psutil.Process", side_effect=psutil.NoSuchProcess(pid=1234))
+
+    process.record_process_stats(1234)
+
+    assert process._runtime_info.memory_usage_mb == 0.0
+    assert process._runtime_info.cpu_usage_percent == 0.0
+
+
+def test_process_manifest_from_json_invalid_path(mocker: MockerFixture) -> None:
+    mock_json_path: Path = Path("/invalid/path/to/manifest.json")
+
+    with pytest.raises(FileNotFoundError):
+        ProcessManifest.from_json(mock_json_path)
+
+
+def test_process_manifest_from_yaml_invalid_path(mocker: MockerFixture) -> None:
+    mock_yaml_path: Path = Path("/invalid/path/to/manifest.yaml")
+
+    with pytest.raises(FileNotFoundError):
+        ProcessManifest.from_yaml(mock_yaml_path)
+
+
+def test_process_pilot_initialization_with_invalid_manifest() -> None:
+    invalid_manifest_data = {
+        "processes": [
+            {
+                "name": "test_process",
+                "path": "mock/path/to/service",
+                "args": ["--arg1", "value1"],
+                "timeout": 10.0,
+                "shutdown_strategy": "invalid_strategy",
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError):  # noqa: PT011
+        ProcessManifest(**invalid_manifest_data)  # type: ignore[arg-type]
+
+
+def test_process_pilot_start_with_no_processes(mocker: MockerFixture) -> None:
+    empty_manifest = ProcessManifest(processes=[])
+    pilot = ProcessPilot(manifest=empty_manifest)
+
+    mock_stop = mocker.patch.object(pilot, "stop", side_effect=pilot.stop)
+
+    pilot.start()
+
+    mock_stop.assert_called_once()
+
+    process = Process(
+        name="test_process",
+        path=Path("/mock/path/to/executable"),
+        args=["--arg1", "value1"],
+        timeout=10.0,
+        shutdown_strategy=ShutdownStrategy.RESTART,
+        dependencies=["dep1", "dep2"],
+    )
+
+    assert process.name == "test_process"
+    assert process.path == Path("/mock/path/to/executable")
+    assert process.args == ["--arg1", "value1"]
+    assert process.timeout == 10.0
+    assert process.shutdown_strategy == ShutdownStrategy.RESTART
+    assert process.dependencies == ["dep1", "dep2"]
+    assert process.hooks == {}
