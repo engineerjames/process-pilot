@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 from time import sleep
 
+import psutil
 import yaml
 from pydantic import BaseModel, Field
 
@@ -37,6 +38,47 @@ class InvalidHookTypeError(Exception):
         super().__init__(f"Hook type provided is invalid: {hook_type}")
 
 
+class ProcessRuntimeInfo:
+    """Contains process-related runtime information."""
+
+    def __init__(self) -> None:
+        """Construct a ProcessRuntimeInfo instance."""
+        self._memory_usage_mb = 0.0
+        self._cpu_usage_percent = 0.0
+        self._max_memory_usage_mb = 0.0
+        self._max_cpu_usage = 0.0
+
+    @property
+    def memory_usage_mb(self) -> float:
+        """Return the current memory usage in megabytes."""
+        return self._memory_usage_mb
+
+    @memory_usage_mb.setter
+    def memory_usage_mb(self, value: float) -> None:
+        self._memory_usage_mb = value
+        self._max_memory_usage_mb = max(value, self._max_memory_usage_mb)
+
+    @property
+    def cpu_usage_percent(self) -> float:
+        """Return the current CPU utilization as a percentage."""
+        return self._cpu_usage_percent
+
+    @cpu_usage_percent.setter
+    def cpu_usage_percent(self, value: float) -> None:
+        self._cpu_usage_percent = value
+        self._max_cpu_usage = max(value, self._max_cpu_usage)
+
+    @property
+    def max_memory_usage_mb(self) -> float:
+        """Return the maximum memory usage in megabytes."""
+        return self._max_memory_usage_mb
+
+    @property
+    def max_cpu_usage(self) -> float:
+        """Return the maximum CPU usage (as a %)."""
+        return self._max_cpu_usage
+
+
 class Process(BaseModel):
     """Pydantic model of an individual process that is being managed."""
 
@@ -47,6 +89,8 @@ class Process(BaseModel):
     shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
     dependencies: list["Process"] = Field(default=[])
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
+
+    _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
 
     @property
     def command(self) -> list[str]:
@@ -75,6 +119,18 @@ class Process(BaseModel):
             self.hooks[hook_type].extend(callback)
         else:
             self.hooks[hook_type].append(callback)
+
+    def record_process_stats(self, pid: int) -> None:
+        """Get the memory usage of a process by its PID."""
+        try:
+            found_process = psutil.Process(pid)
+            memory_usage = found_process.memory_info()
+            cpu_usage = found_process.cpu_percent()
+        except psutil.NoSuchProcess:
+            return
+        else:
+            self._runtime_info.cpu_usage_percent = cpu_usage
+            self._runtime_info.memory_usage_mb = memory_usage.rss / (1024 * 1024)
 
 
 class ProcessManifest(BaseModel):
@@ -177,6 +233,7 @@ class ProcessPilot:
 
             # Process has not exited yet
             if result is None:
+                process_entry.record_process_stats(process.pid)
                 continue
 
             processes_to_remove.append(process_entry)
