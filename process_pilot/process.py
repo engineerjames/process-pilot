@@ -129,16 +129,7 @@ class ProcessPilot:
         """Start all services."""
         try:
             logging.debug("Starting process pilot - Initializing processes.")
-            for entry in self.manifest.processes:
-                logging.debug(
-                    "Executing command: %s",
-                    entry.command,
-                )
-
-                ProcessPilot._execute_hooks(entry, ProcessHookType.PRE_START)
-                new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
-                ProcessPilot._execute_hooks(entry, ProcessHookType.POST_START)
-                self._processes.append((entry, new_popen_result))
+            self._initialize_processes()
 
             logging.debug("Entering main execution loop")
             while not self._shutting_down:
@@ -153,6 +144,19 @@ class ProcessPilot:
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
+
+    def _initialize_processes(self) -> None:
+        """Initialize all processes prior to entering the monitoring loop."""
+        for entry in self.manifest.processes:
+            logging.debug(
+                "Executing command: %s",
+                entry.command,
+            )
+
+            ProcessPilot._execute_hooks(entry, ProcessHookType.PRE_START)
+            new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
+            ProcessPilot._execute_hooks(entry, ProcessHookType.POST_START)
+            self._processes.append((entry, new_popen_result))
 
     @staticmethod
     def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
