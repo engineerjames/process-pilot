@@ -10,7 +10,7 @@ from time import sleep
 
 import psutil
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ShutdownStrategy(str, Enum):
@@ -87,7 +87,7 @@ class Process(BaseModel):
     args: list[str] = Field(default=[])
     timeout: float | None = None
     shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
-    dependencies: list[str] = Field(default=[])
+    dependencies: list[str] | list["Process"] = Field(default=[])
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
@@ -138,6 +138,28 @@ class ProcessManifest(BaseModel):
 
     processes: list[Process]
 
+    @model_validator(mode="after")
+    def resolve_dependencies(self) -> "ProcessManifest":
+        """
+        Resolve dependencies for each process in the manifest.
+
+        :returns: The updated manifest with resolved dependencies
+        """
+        process_dict = {process.name: process for process in self.processes}
+
+        for process in self.processes:
+            resolved_dependencies = []
+            for dep_name in process.dependencies:
+                if dep_name in process_dict and isinstance(dep_name, str):
+                    resolved_dependencies.append(process_dict[dep_name])
+                else:
+                    error_message = f"Dependency {dep_name} for process {process.name} not found."
+                    raise ValueError(error_message)
+
+            process.dependencies = resolved_dependencies
+
+        return self
+
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
@@ -145,7 +167,7 @@ class ProcessManifest(BaseModel):
 
         :param path: Path to the JSON file
         """
-        with Path.open(path, "r") as f:
+        with path.open("r") as f:
             json_data = json.loads(f.read())
 
         return cls(**json_data)
@@ -153,11 +175,11 @@ class ProcessManifest(BaseModel):
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
         """
-        Load a YAMLM formatted process manifest.
+        Load a YAML formatted process manifest.
 
         :param path: Path to the YAML file
         """
-        with Path.open(path, "r") as f:
+        with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
         return cls(**yaml_data)
