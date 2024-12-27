@@ -2,32 +2,23 @@
 
 import json
 import logging
+import os
+import socket
 import subprocess
+import tempfile
+import time
 from collections.abc import Callable
-from enum import Enum
 from pathlib import Path
 from time import sleep
+from typing import Any, Literal, cast
 
 import psutil
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-
-class ShutdownStrategy(str, Enum):
-    """Enumeration that describes the strategy for if/when a service exits."""
-
-    RESTART = "restart"  # Restart the service in question
-    DO_NOT_RESTART = "do_not_restart"  # Leave it dead
-    SHUTDOWN_EVERYTHING = "shutdown_everything"  # Take down everything else with it
-
-
-class ProcessHookType(str, Enum):
-    """Enumeration that describes when a given hook is to be executed."""
-
-    PRE_START = "pre_start"
-    POST_START = "post_start"
-    ON_SHUTDOWN = "on_shutdown"
-    ON_RESTART = "on_restart"
+ShutdownStrategy = Literal["restart", "do_not_restart", "shutdown_everything"]
+ProcessHookType = Literal["pre_start", "post_start", "on_shutdown", "on_restart"]
+ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
 class InvalidHookTypeError(Exception):
@@ -83,14 +74,40 @@ class Process(BaseModel):
     """Pydantic model of an individual process that is being managed."""
 
     name: str
+    """The name of the process."""
+
     path: Path
+    """The path to the executable that will be run."""
+
     args: list[str] = Field(default=[])
+    """The arguments to pass to the executable when it is run."""
+
     timeout: float | None = None
-    shutdown_strategy: ShutdownStrategy | None = ShutdownStrategy.RESTART
-    dependencies: list["Process"] = Field(default=[])
+    """The amount of time to wait for the process to exit before forcibly killing it."""
+
+    shutdown_strategy: ShutdownStrategy | None = "restart"
+    """The strategy to use when the process exits.  If not specified, the default is to restart the process."""
+
+    dependencies: list[str] | list["Process"] = Field(default=[])
+    """
+    A list of dependencies that must be started before this process can be started.
+    This is a list of other names in the manifest.
+    """
+
     hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
+    """A series of functions to call at various points in the process lifecycle."""
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
+    """Runtime information about the process"""
+
+    ready_strategy: ReadyStrategy | None = None
+    """Optional strategy to determine if the process is ready"""
+
+    ready_timeout_sec: float = 10.0
+    """The amount of time to wait for the process to signal readiness before giving up"""
+
+    ready_params: dict[str, Any] = Field(default_factory=dict)
+    """Additional parameters for the ready strategy"""
 
     @property
     def command(self) -> list[str]:
@@ -132,11 +149,152 @@ class Process(BaseModel):
             self._runtime_info.cpu_usage_percent = cpu_usage
             self._runtime_info.memory_usage_mb = memory_usage.rss / (1024 * 1024)
 
+    def wait_until_ready(self, pid: int) -> bool:
+        """Wait for process to signal readiness."""
+        logging.debug("Waiting for process %s to signal ready with pid %i", self.name, pid)
+
+        if self.ready_strategy == "tcp":
+            return self._wait_tcp_ready()
+
+        if self.ready_strategy == "pipe":
+            return self._wait_pipe_ready()
+
+        if self.ready_strategy == "file":
+            return self._wait_file_ready()
+
+        return True
+
+    def _wait_tcp_ready(self) -> bool:
+        """Wait for TCP port to be listening."""
+        port: int | None = self.ready_params.get("port")
+
+        if not port:
+            error_message = "Port not specified for TCP ready strategy"
+            raise RuntimeError(error_message)
+
+        start_time = time.time()
+
+        while (time.time() - start_time) < self.ready_timeout_sec:
+            try:
+                with socket.create_connection(("localhost", port), timeout=1.0):
+                    return True
+            except Exception:  # noqa: BLE001
+                time.sleep(0.1)  # TODO: Configurable sleep time here, and for socket connection
+        return False
+
+    def _wait_pipe_ready(self) -> bool:
+        """Wait for ready signal via named pipe."""
+        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
+
+        # TODO: Will this work on Windows?
+
+        if not pipe_path.exists():
+            os.mkfifo(pipe_path)
+
+        start_time = time.time()
+        while (time.time() - start_time) < self.ready_timeout_sec:
+            try:
+                with Path.open(pipe_path) as fifo:
+                    return fifo.read().strip() == "ready"
+            except Exception:  # noqa: BLE001
+                time.sleep(0.1)
+
+        return False
+
+    def _wait_file_ready(self) -> bool:
+        """Wait for ready signal via presence of a file."""
+        file_path = Path(self.ready_params.get("path", ""))
+
+        # TODO: How do we ensure that clients delete the file?
+
+        if not file_path:
+            error_message = "Path not specified for file ready strategy"
+            raise RuntimeError(error_message)
+
+        start_time = time.time()
+        while (time.time() - start_time) < self.ready_timeout_sec:
+            if file_path.exists():
+                return True
+            time.sleep(0.1)
+
+        return False
+
 
 class ProcessManifest(BaseModel):
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
+
+    @model_validator(mode="after")
+    def resolve_dependencies(self) -> "ProcessManifest":
+        """
+        Resolve dependencies for each process in the manifest.
+
+        :returns: The updated manifest with resolved dependencies
+        """
+        process_dict = {process.name: process for process in self.processes}
+
+        process_name_set: set[str] = set()
+
+        for process in self.processes:
+            resolved_dependencies = []
+
+            # Ensure no duplicate names in the manifest
+            if process.name in process_name_set:
+                error_message = f"Duplicate process name found: '{process.name}'"
+                raise ValueError(error_message)
+
+            process_name_set.add(process.name)
+
+            for dep_name in process.dependencies:
+                if dep_name in process_dict and isinstance(dep_name, str):
+                    resolved_dependencies.append(process_dict[dep_name])
+                else:
+                    error_message = f"Dependency '{dep_name}' for process '{process.name}' not found."
+                    raise ValueError(error_message)
+
+            process.dependencies = resolved_dependencies
+
+        return self
+
+    @model_validator(mode="after")
+    def order_dependencies(self) -> "ProcessManifest":
+        """
+        Orders the process list based on the dependencies of each process.
+
+        :returns: The updated manifest with ordered dependencies
+        :raises: ValueError if circular dependencies are detected
+        """
+        ordered_processes = []
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def visit(process: Process) -> None:
+            if process.name in visited:
+                return
+
+            if process.name in visiting:
+                error_message = (
+                    f"Circular dependency detected involving process {process.name} and process {list(visiting)[-1]}"
+                )
+                raise ValueError(error_message)
+
+            visiting.add(process.name)
+            process.dependencies = cast(list[Process], process.dependencies)
+
+            for dep in process.dependencies:
+                visit(dep)
+
+            visiting.remove(process.name)
+            visited.add(process.name)
+
+            ordered_processes.append(process)
+
+        for process in self.processes:
+            visit(process)
+
+        self.processes = ordered_processes
+        return self
 
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
@@ -145,7 +303,7 @@ class ProcessManifest(BaseModel):
 
         :param path: Path to the JSON file
         """
-        with Path.open(path, "r") as f:
+        with path.open("r") as f:
             json_data = json.loads(f.read())
 
         return cls(**json_data)
@@ -153,11 +311,11 @@ class ProcessManifest(BaseModel):
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
         """
-        Load a YAMLM formatted process manifest.
+        Load a YAML formatted process manifest.
 
         :param path: Path to the YAML file
         """
-        with Path.open(path, "r") as f:
+        with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
         return cls(**yaml_data)
@@ -202,16 +360,26 @@ class ProcessPilot:
             self.stop()
 
     def _initialize_processes(self) -> None:
-        """Initialize all processes prior to entering the monitoring loop."""
+        """Initialize all processes and wait for ready signals."""
         for entry in self._manifest.processes:
             logging.debug(
                 "Executing command: %s",
                 entry.command,
             )
 
-            ProcessPilot._execute_hooks(entry, ProcessHookType.PRE_START)
+            ProcessPilot._execute_hooks(entry, "pre_start")
             new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
-            ProcessPilot._execute_hooks(entry, ProcessHookType.POST_START)
+
+            if entry.ready_strategy:
+                if entry.wait_until_ready(new_popen_result.pid):
+                    logging.debug("Process %s signaled ready", entry.name)
+                else:
+                    error_message = f"Process {entry.name} failed to signal ready"
+                    raise RuntimeError(error_message)
+            else:
+                logging.debug("No ready strategy for process %s", entry.name)
+
+            ProcessPilot._execute_hooks(entry, "post_start")
             self._processes.append((entry, new_popen_result))
 
     @staticmethod
@@ -238,23 +406,23 @@ class ProcessPilot:
 
             processes_to_remove.append(process_entry)
 
-            ProcessPilot._execute_hooks(process_entry, ProcessHookType.ON_SHUTDOWN)
+            ProcessPilot._execute_hooks(process_entry, "on_shutdown")
 
             match process_entry.shutdown_strategy:
-                case ShutdownStrategy.SHUTDOWN_EVERYTHING:
+                case "shutdown_everything":
                     logging.warning(
                         "%s shutdown with return code %i - shutting down everything.",
                         process_entry,
                         process.returncode,
                     )
                     self.stop()
-                case ShutdownStrategy.DO_NOT_RESTART:
+                case "do_not_restart":
                     logging.warning(
                         "%s shutdown with return code %i.",
                         process_entry,
                         process.returncode,
                     )
-                case ShutdownStrategy.RESTART:
+                case "restart":
                     logging.warning(
                         "%s shutdown with return code %i.  Restarting...",
                         process_entry,
@@ -273,7 +441,7 @@ class ProcessPilot:
                         ),
                     )
 
-                    ProcessPilot._execute_hooks(process_entry, ProcessHookType.ON_RESTART)
+                    ProcessPilot._execute_hooks(process_entry, "on_restart")
                 case _:
                     logging.error(
                         "Shutdown strategy not handled: %s",

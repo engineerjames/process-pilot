@@ -2,10 +2,34 @@
   "processes": [
     {
       "name": "example",
+      "dependencies": ["example 2"],
       "path": "sleep",
       "args": ["5"],
       "timeout": 3,
       "shutdown_strategy": "do_not_restart"
+    },
+    {
+      "name": "example 2",
+      "path": "sleep",
+      "dependencies": ["example 3"],
+      "args": ["10"],
+      "timeout": 3,
+      "shutdown_strategy": "restart"
+    },
+    {
+      "name": "example 3",
+      "path": "sleep",
+      "args": ["15"],
+      "timeout": 3,
+      "shutdown_strategy": "restart"
+    },
+    {
+      "name": "example 4",
+      "dependencies": ["example 3", "example 2", "example"],
+      "path": "sleep",
+      "args": ["20"],
+      "timeout": 3,
+      "shutdown_strategy": "restart"
     }
   ]
 }
