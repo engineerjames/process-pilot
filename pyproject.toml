@@ -40,9 +40,16 @@ no_implicit_optional = true  # Don't assume that variables can be None unless ex
 line-length = 120
 target-version = "py311"
 fix = true
-select = [
-    "ALL", # include all the rules, including new ones
-]
+
+[tool.ruff.lint]
 ignore = [
     "D212",
+    "TD003",
+    "TD002",
+    "FIX002",
+    "D211",
+]
+
+select = [
+    "ALL", # include all the rules, including new ones
 ]

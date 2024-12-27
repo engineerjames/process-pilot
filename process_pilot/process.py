@@ -22,6 +22,7 @@ ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
 class InvalidHookTypeError(Exception):
+
     """Custom exception for invalid hook types."""
 
     def __init__(self, hook_type: ProcessHookType) -> None:
@@ -30,6 +31,7 @@ class InvalidHookTypeError(Exception):
 
 
 class ProcessRuntimeInfo:
+
     """Contains process-related runtime information."""
 
     def __init__(self) -> None:
@@ -71,6 +73,7 @@ class ProcessRuntimeInfo:
 
 
 class Process(BaseModel):
+
     """Pydantic model of an individual process that is being managed."""
 
     name: str
@@ -221,6 +224,7 @@ class Process(BaseModel):
 
 
 class ProcessManifest(BaseModel):
+
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
@@ -322,6 +326,7 @@ class ProcessManifest(BaseModel):
 
 
 class ProcessPilot:
+
     """Class that manages a manifest-driven set of processes."""
 
     def __init__(self, manifest: ProcessManifest, poll_interval: float = 0.1) -> None:
