@@ -8,7 +8,6 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable
-from enum import Enum
 from pathlib import Path
 from time import sleep
 from typing import Any, Literal, cast

@@ -81,7 +81,7 @@ def test_process_initialization() -> None:
         path=Path("/mock/path/to/executable"),
         args=["--arg1", "value1"],
         timeout=10.0,
-        shutdown_strategy=ShutdownStrategy.RESTART,
+        shutdown_strategy="restart",
         dependencies=["dep1", "dep2"],
     )
 
@@ -89,7 +89,7 @@ def test_process_initialization() -> None:
     assert process.path == Path("/mock/path/to/executable")
     assert process.args == ["--arg1", "value1"]
     assert process.timeout == 10.0
-    assert process.shutdown_strategy == ShutdownStrategy.RESTART
+    assert process.shutdown_strategy == "restart"
     assert process.dependencies == ["dep1", "dep2"]
     assert process.hooks == {}
 
@@ -113,12 +113,12 @@ def test_process_register_hook() -> None:
     def mock_hook(process: Process) -> None:
         pass
 
-    process.register_hook(ProcessHookType.PRE_START, mock_hook)
-    assert len(process.hooks[ProcessHookType.PRE_START]) == 1
-    assert process.hooks[ProcessHookType.PRE_START][0] == mock_hook
+    process.register_hook("pre_start", mock_hook)
+    assert len(process.hooks["pre_start"]) == 1
+    assert process.hooks["pre_start"][0] == mock_hook
 
-    process.register_hook(ProcessHookType.PRE_START, [mock_hook, mock_hook])
-    assert len(process.hooks[ProcessHookType.PRE_START]) == 3
+    process.register_hook("pre_start", [mock_hook, mock_hook])
+    assert len(process.hooks["pre_start"]) == 3
 
 
 def test_process_record_process_stats(mocker: MockerFixture) -> None:
@@ -198,7 +198,7 @@ def test_process_pilot_start_with_no_processes(mocker: MockerFixture) -> None:
         path=Path("/mock/path/to/executable"),
         args=["--arg1", "value1"],
         timeout=10.0,
-        shutdown_strategy=ShutdownStrategy.RESTART,
+        shutdown_strategy="restart",
         dependencies=["dep1", "dep2"],
     )
 
@@ -206,7 +206,7 @@ def test_process_pilot_start_with_no_processes(mocker: MockerFixture) -> None:
     assert process.path == Path("/mock/path/to/executable")
     assert process.args == ["--arg1", "value1"]
     assert process.timeout == 10.0
-    assert process.shutdown_strategy == ShutdownStrategy.RESTART
+    assert process.shutdown_strategy == "restart"
     assert process.dependencies == ["dep1", "dep2"]
     assert process.hooks == {}
 
@@ -270,10 +270,10 @@ def test_process_hooks_execution_order() -> None:
     def hook2(_: Process) -> None:
         execution_order.append("hook2")
 
-    process.register_hook(ProcessHookType.PRE_START, [hook1, hook2])
+    process.register_hook("pre_start", [hook1, hook2])
 
     # Mock ProcessPilot._execute_hooks to actually call the hooks
-    ProcessPilot._execute_hooks(process, ProcessHookType.PRE_START)
+    ProcessPilot._execute_hooks(process, "pre_start")
 
     assert execution_order == ["hook1", "hook2"]
 

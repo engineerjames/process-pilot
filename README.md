@@ -8,6 +8,7 @@ Process Pilot is a Python-based tool for managing and monitoring processes defin
 - Manage process lifecycles with customizable hooks.
 - Monitor process resource usage.
 - Define shutdown strategies for processes.
+- Define ready strategies to determine when launched processes are deemed to be "running".
 
 ## Installation
 
@@ -41,7 +42,12 @@ The process manifest defines the processes to be managed. It can be written in J
       "path": "sleep",
       "args": ["5"],
       "timeout": 3,
-      "shutdown_strategy": "do_not_restart"
+      "shutdown_strategy": "do_not_restart",
+      "ready_strategy": "tcp",
+      "ready_timeout_sec": 10.0,
+      "ready_params": {
+        "port": 8080
+      }
     }
   ]
 }
@@ -56,6 +62,10 @@ processes:
         args: ["5"]
         timeout: 1.0
         shutdown_strategy: do_not_restart
+        ready_strategy: tcp
+        ready_timeout_sec: 10.0
+        ready_params:
+            port: 8080
 ```
 
 ## Process Lifecycle
