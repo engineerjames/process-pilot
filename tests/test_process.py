@@ -216,7 +216,7 @@ def test_process_manifest_circular_dependencies() -> None:
         "processes": [
             {"name": "process1", "path": "test", "dependencies": ["process2"]},
             {"name": "process2", "path": "test", "dependencies": ["process1"]},
-        ]
+        ],
     }
 
     with pytest.raises(ValueError, match="Circular dependency detected"):
@@ -264,10 +264,10 @@ def test_process_hooks_execution_order() -> None:
 
     execution_order = []
 
-    def hook1(p: Process) -> None:
+    def hook1(_: Process) -> None:
         execution_order.append("hook1")
 
-    def hook2(p: Process) -> None:
+    def hook2(_: Process) -> None:
         execution_order.append("hook2")
 
     process.register_hook(ProcessHookType.PRE_START, [hook1, hook2])
@@ -284,7 +284,7 @@ def test_process_manifest_dependency_ordering() -> None:
             {"name": "process3", "path": "test", "dependencies": ["process2"]},
             {"name": "process1", "path": "test"},
             {"name": "process2", "path": "test", "dependencies": ["process1"]},
-        ]
+        ],
     }
 
     manifest = ProcessManifest(**manifest_data)  # type: ignore[arg-type]
