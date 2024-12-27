@@ -6,14 +6,7 @@ import psutil
 import pytest
 from pytest_mock import MockerFixture
 
-from process_pilot.process import (
-    Process,
-    ProcessHookType,
-    ProcessManifest,
-    ProcessPilot,
-    ProcessRuntimeInfo,
-    ShutdownStrategy,
-)
+from process_pilot.process import Process, ProcessManifest, ProcessPilot, ProcessRuntimeInfo
 
 
 def test_can_load_json() -> None:
