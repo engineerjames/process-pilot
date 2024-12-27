@@ -22,6 +22,14 @@
       "args": ["15"],
       "timeout": 3,
       "shutdown_strategy": "restart"
+    },
+    {
+      "name": "example 4",
+      "dependencies": ["example 3", "example 2", "example"],
+      "path": "sleep",
+      "args": ["20"],
+      "timeout": 3,
+      "shutdown_strategy": "restart"
     }
   ]
 }

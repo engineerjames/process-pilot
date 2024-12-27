@@ -7,6 +7,7 @@ from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from time import sleep
+from typing import cast
 
 import psutil
 import yaml
@@ -171,7 +172,7 @@ class ProcessManifest(BaseModel):
 
             # Ensure no duplicate names in the manifest
             if process.name in process_name_set:
-                error_message = f"Duplicate process name found: {process.name}"
+                error_message = f"Duplicate process name found: '{process.name}'"
                 raise ValueError(error_message)
 
             process_name_set.add(process.name)
@@ -180,7 +181,7 @@ class ProcessManifest(BaseModel):
                 if dep_name in process_dict and isinstance(dep_name, str):
                     resolved_dependencies.append(process_dict[dep_name])
                 else:
-                    error_message = f"Dependency {dep_name} for process {process.name} not found."
+                    error_message = f"Dependency '{dep_name}' for process '{process.name}' not found."
                     raise ValueError(error_message)
 
             process.dependencies = resolved_dependencies
@@ -193,17 +194,31 @@ class ProcessManifest(BaseModel):
         Orders the process list based on the dependencies of each process.
 
         :returns: The updated manifest with ordered dependencies
+        :raises: ValueError if circular dependencies are detected
         """
         ordered_processes = []
-        visited = set()
+        visited: set[str] = set()
+        visiting: set[str] = set()
 
         def visit(process: Process) -> None:
             if process.name in visited:
                 return
-            visited.add(process.name)
+
+            if process.name in visiting:
+                error_message = (
+                    f"Circular dependency detected involving process {process.name} and process {list(visiting)[-1]}"
+                )
+                raise ValueError(error_message)
+
+            visiting.add(process.name)
+            process.dependencies = cast(list[Process], process.dependencies)
+
             for dep in process.dependencies:
-                if isinstance(dep, Process):
-                    visit(dep)
+                visit(dep)
+
+            visiting.remove(process.name)
+            visited.add(process.name)
+
             ordered_processes.append(process)
 
         for process in self.processes:
