@@ -91,6 +91,97 @@ poetry run pytest
 
 ### Linting and Formatting
 
+### Ready Strategies
+
+Process Pilot supports three different strategies to determine if a process is ready:
+
+1. TCP Port Listening
+2. Named Pipe Signal
+3. File Presence
+
+The following diagrams illustrate how each strategy works:
+
+#### TCP Ready Strategy
+
+```mermaid
+sequenceDiagram
+    participant PP as Process Pilot
+    participant P as Process
+    participant TCP as TCP Port
+    PP->>P: Start Process
+    activate P
+    P->>TCP: Begin Listening
+    loop Until Ready or Timeout
+        PP->>TCP: Attempt Connection
+        alt Port is Listening
+            TCP-->>PP: Connection Success
+            PP->>PP: Process Ready
+        else Port not ready
+            TCP-->>PP: Connection Failed
+            Note over PP: Wait 0.1s
+        end
+    end
+    deactivate P
+```
+
+#### Named Pipe Ready Strategy
+
+```mermaid
+sequenceDiagram
+    participant PP as Process Pilot
+    participant P as Process
+    participant Pipe as Named Pipe
+    PP->>Pipe: Create Pipe
+    PP->>P: Start Process
+    activate P
+    loop Until Ready or Timeout
+        PP->>Pipe: Read Pipe
+        alt Contains "ready"
+            Pipe-->>PP: "ready"
+            PP->>PP: Process Ready
+        else Not Ready
+            Pipe-->>PP: No Data/Error
+            Note over PP: Wait 0.1s
+        end
+    end
+    deactivate P
+```
+
+#### File Ready Strategy
+
+```mermaid
+sequenceDiagram
+    participant PP as Process Pilot
+    participant P as Process
+    participant FS as File System
+    PP->>P: Start Process
+    activate P
+    loop Until Ready or Timeout
+        PP->>FS: Check File
+        alt File Exists
+            FS-->>PP: File Found
+            PP->>PP: Process Ready
+        else No File
+            FS-->>PP: No File
+            Note over PP: Wait 0.1s
+        end
+    end
+    deactivate P
+```
+
+Each strategy can be configured in the manifest:
+
+```yaml
+processes:
+  - name: example
+    path: myapp
+    ready_strategy: tcp # or "pipe" or "file"
+    ready_timeout_sec: 10.0
+    ready_params:
+      port: 8080 # for TCP
+      path: "/tmp/ready.txt" # for File
+```
+
 To lint and format the code, use:
 
 ```sh
