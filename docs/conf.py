@@ -18,7 +18,7 @@ release = "0.1.1"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 sys.path.insert(0, str(Path("..").resolve()))
-html_extra_path = ["../LICENSE", "../README.md"]
+html_extra_path = ["../LICENSE"]
 
 extensions = [
     "sphinx.ext.autodoc",

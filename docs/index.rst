@@ -7,14 +7,10 @@ process-pilot documentation
 ===========================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents:
+
+   api
 
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
-   
-.. automodule:: process_pilot.process
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
