@@ -298,7 +298,7 @@ def test_tcp_ready_strategy_timeout() -> None:
         ready_params={"port": 12345},
     )
 
-    assert not process._wait_tcp_ready()
+    assert not process._wait_tcp_ready(0.1)
 
 
 def test_tcp_ready_strategy_missing_port() -> None:
@@ -309,7 +309,7 @@ def test_tcp_ready_strategy_missing_port() -> None:
     )
 
     with pytest.raises(RuntimeError, match="Port not specified"):
-        process._wait_tcp_ready()
+        process._wait_tcp_ready(0.1)
 
 
 def test_pipe_ready_strategy_timeout() -> None:
@@ -331,7 +331,7 @@ def test_file_ready_strategy_missing_path() -> None:
     )
 
     with pytest.raises(RuntimeError, match="Path not specified"):
-        process._wait_file_ready()
+        process._wait_file_ready(0.1)
 
 
 def test_file_ready_strategy_timeout() -> None:
@@ -344,7 +344,7 @@ def test_file_ready_strategy_timeout() -> None:
             ready_params={"path": f"{tmpdir}/ready.txt"},
         )
 
-        assert not process._wait_file_ready()
+        assert not process._wait_file_ready(0.1)
 
 
 def test_register_invalid_hook_type() -> None:
