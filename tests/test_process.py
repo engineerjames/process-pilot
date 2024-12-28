@@ -1,9 +1,11 @@
 import subprocess
+import tempfile
 from pathlib import Path
 from unittest import mock
 
 import psutil
 import pytest
+from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from process_pilot.process import Process, ProcessManifest, ProcessPilot, ProcessRuntimeInfo
@@ -285,3 +287,129 @@ def test_process_manifest_dependency_ordering() -> None:
     # Verify correct ordering
     process_names = [p.name for p in manifest.processes]
     assert process_names == ["process1", "process2", "process3"]
+
+
+def test_tcp_ready_strategy_timeout() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="tcp",
+        ready_timeout_sec=0.1,
+        ready_params={"port": 12345},
+    )
+
+    assert not process._wait_tcp_ready()
+
+
+def test_tcp_ready_strategy_missing_port() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="tcp",
+    )
+
+    with pytest.raises(RuntimeError, match="Port not specified"):
+        process._wait_tcp_ready()
+
+
+# def test_pipe_ready_strategy_timeout() -> None:
+#     process = Process(
+#         name="test_process",
+#         path=Path("/test/executable"),
+#         ready_strategy="pipe",
+#         ready_timeout_sec=0.1,
+#     )
+
+#     assert not process._wait_pipe_ready()
+
+
+def test_file_ready_strategy_missing_path() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="file",
+    )
+
+    with pytest.raises(RuntimeError, match="Path not specified"):
+        process._wait_file_ready()
+
+
+def test_file_ready_strategy_timeout() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        process = Process(
+            name="test_process",
+            path=Path("/test/executable"),
+            ready_strategy="file",
+            ready_timeout_sec=0.1,
+            ready_params={"path": f"{tmpdir}/ready.txt"},
+        )
+
+        assert not process._wait_file_ready()
+
+
+def test_register_invalid_hook_type() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+    )
+
+    def mock_hook(_: Process) -> None:
+        pass
+
+    with pytest.raises(ValueError, match="Invalid hook type"):
+        process.register_hook("invalid_hook_type", mock_hook)  # type:ignore[arg-type]
+
+
+def test_failing_hook_execution() -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+    )
+
+    def failing_hook(_: Process) -> None:
+        error_message = "Hook failed"
+        raise RuntimeError(error_message)
+
+    process.register_hook("pre_start", failing_hook)
+
+    with pytest.raises(RuntimeError, match="Hook failed"):
+        ProcessPilot._execute_hooks(process, "pre_start")
+
+
+def test_process_stats_permission_error(mocker: MockerFixture) -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+    )
+
+    mock_psutil = mocker.patch("psutil.Process")
+    mock_psutil.side_effect = psutil.AccessDenied
+
+    with pytest.raises(psutil.AccessDenied):
+        process.record_process_stats(1234)
+
+    assert process._runtime_info.memory_usage_mb == 0.0
+    assert process._runtime_info.cpu_usage_percent == 0.0
+
+
+def test_wait_until_ready_invalid_strategy() -> None:
+    with pytest.raises(ValidationError):
+        _ = Process(
+            name="test_process",
+            path=Path("/test/executable"),
+            ready_strategy="invalid_strategy",  # type: ignore[arg-type]
+        )
+
+
+def test_process_pilot_stop_timeout(mocker: MockerFixture) -> None:
+    manifest = ProcessManifest(processes=[Process(name="test_process", path=Path("/test/executable"), timeout=0.1)])
+
+    pilot = ProcessPilot(manifest=manifest)
+    mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=0.1)
+
+    pilot._processes = [(manifest.processes[0], mock_popen)]
+
+    pilot.stop()
+
+    mock_popen.kill.assert_called_once()

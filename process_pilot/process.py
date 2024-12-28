@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -22,7 +23,6 @@ ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
 class InvalidHookTypeError(Exception):
-
     """Custom exception for invalid hook types."""
 
     def __init__(self, hook_type: ProcessHookType) -> None:
@@ -31,7 +31,6 @@ class InvalidHookTypeError(Exception):
 
 
 class ProcessRuntimeInfo:
-
     """Contains process-related runtime information."""
 
     def __init__(self) -> None:
@@ -73,7 +72,6 @@ class ProcessRuntimeInfo:
 
 
 class Process(BaseModel):
-
     """Pydantic model of an individual process that is being managed."""
 
     name: str
@@ -132,6 +130,10 @@ class Process(BaseModel):
         :param hook_type: The type of hook to register the callback for
         :param callback: The function to call or a list of functions to call
         """
+
+        if hook_type not in ("pre_start", "post_start", "on_shutdown", "on_restart"):
+            raise ValueError("Invalid hook type provided")
+
         if hook_type not in self.hooks:
             self.hooks[hook_type] = []
 
@@ -187,25 +189,85 @@ class Process(BaseModel):
 
     def _wait_pipe_ready(self) -> bool:
         """Wait for ready signal via named pipe."""
-        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
+        if sys.platform == "win32":
+            return self._wait_pipe_ready_windows()
+        return self._wait_pipe_ready_unix()
 
-        # TODO: Will this work on Windows?
+    def _wait_pipe_ready_windows(self) -> bool:
+        """Windows-specific named pipe implementation."""
+        try:
+            if sys.platform != "win32":
+                error_message = "Windows-specific pipe implementation called on non-Windows platform"
+                raise RuntimeError(error_message)
+
+            # Only import on Windows
+            import pywintypes
+            import win32file
+            import win32pipe
+        except ImportError:
+            error_message = "win32pipe module required for Windows pipe support"
+            raise RuntimeError(error_message) from None
+
+        pipe_name = f"\\\\.\\pipe\\{self.name}_ready"
+        pipe = None
+
+        try:
+            # Create pipe with appropriate security/sharing flags
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                1,
+                65536,
+                65536,
+                0,
+                None,  # type: ignore[arg-type]
+            )
+
+            start_time = time.time()
+            while (time.time() - start_time) < self.ready_timeout_sec:
+                try:
+                    # Wait for client connection
+                    win32pipe.ConnectNamedPipe(pipe, None)
+                    # Read message
+                    result, data = win32file.ReadFile(pipe, 64 * 1024)
+                    if result == 0:
+                        return data.strip() == "ready"
+                except pywintypes.error:
+                    time.sleep(0.1)
+
+            return False
+
+        finally:
+            if pipe:
+                win32file.CloseHandle(pipe)
+
+    def _wait_pipe_ready_unix(self) -> bool:
+        """Unix-specific FIFO implementation."""
+        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
 
         if not pipe_path.exists():
             os.mkfifo(pipe_path)
 
-        start_time = time.time()
-        while (time.time() - start_time) < self.ready_timeout_sec:
-            try:
-                with Path.open(pipe_path) as fifo:
-                    return fifo.read().strip() == "ready"
-            except Exception:  # noqa: BLE001
-                time.sleep(0.1)
-
-        return False
+        try:
+            start_time = time.time()
+            while (time.time() - start_time) < self.ready_timeout_sec:
+                try:
+                    with Path.open(pipe_path) as fifo:
+                        return fifo.read().strip() == "ready"
+                except Exception:  # noqa: BLE001
+                    time.sleep(0.1)
+            return False
+        finally:
+            if pipe_path.exists():
+                pipe_path.unlink()
 
     def _wait_file_ready(self) -> bool:
         """Wait for ready signal via presence of a file."""
+        if "path" not in self.ready_params or not isinstance(self.ready_params["path"], str):
+            error_message = "Path not specified for file ready strategy or not a string"
+            raise RuntimeError(error_message)
+
         file_path = Path(self.ready_params.get("path", ""))
 
         # TODO: How do we ensure that clients delete the file?
@@ -224,7 +286,6 @@ class Process(BaseModel):
 
 
 class ProcessManifest(BaseModel):
-
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
@@ -326,7 +387,6 @@ class ProcessManifest(BaseModel):
 
 
 class ProcessPilot:
-
     """Class that manages a manifest-driven set of processes."""
 
     def __init__(self, manifest: ProcessManifest, poll_interval: float = 0.1) -> None:
