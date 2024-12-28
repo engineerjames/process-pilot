@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -22,7 +23,6 @@ ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
 class InvalidHookTypeError(Exception):
-
     """Custom exception for invalid hook types."""
 
     def __init__(self, hook_type: ProcessHookType) -> None:
@@ -31,7 +31,6 @@ class InvalidHookTypeError(Exception):
 
 
 class ProcessRuntimeInfo:
-
     """Contains process-related runtime information."""
 
     def __init__(self) -> None:
@@ -73,7 +72,6 @@ class ProcessRuntimeInfo:
 
 
 class Process(BaseModel):
-
     """Pydantic model of an individual process that is being managed."""
 
     name: str
@@ -84,6 +82,9 @@ class Process(BaseModel):
 
     args: list[str] = Field(default=[])
     """The arguments to pass to the executable when it is run."""
+
+    env: dict[str, str] = Field(default_factory=dict)
+    """Environment variables to pass to the process. These are merged with the parent process environment."""
 
     timeout: float | None = None
     """The amount of time to wait for the process to exit before forcibly killing it."""
@@ -132,6 +133,10 @@ class Process(BaseModel):
         :param hook_type: The type of hook to register the callback for
         :param callback: The function to call or a list of functions to call
         """
+        if hook_type not in ("pre_start", "post_start", "on_shutdown", "on_restart"):
+            error_message = f"Invalid hook type provided: {hook_type}"
+            raise ValueError(error_message)
+
         if hook_type not in self.hooks:
             self.hooks[hook_type] = []
 
@@ -152,22 +157,22 @@ class Process(BaseModel):
             self._runtime_info.cpu_usage_percent = cpu_usage
             self._runtime_info.memory_usage_mb = memory_usage.rss / (1024 * 1024)
 
-    def wait_until_ready(self, pid: int) -> bool:
+    def wait_until_ready(self, pid: int, ready_check_interval_secs: float) -> bool:
         """Wait for process to signal readiness."""
         logging.debug("Waiting for process %s to signal ready with pid %i", self.name, pid)
 
         if self.ready_strategy == "tcp":
-            return self._wait_tcp_ready()
+            return self._wait_tcp_ready(ready_check_interval_secs)
 
         if self.ready_strategy == "pipe":
-            return self._wait_pipe_ready()
+            return self._wait_pipe_ready(ready_check_interval_secs)
 
         if self.ready_strategy == "file":
-            return self._wait_file_ready()
+            return self._wait_file_ready(ready_check_interval_secs)
 
         return True
 
-    def _wait_tcp_ready(self) -> bool:
+    def _wait_tcp_ready(self, ready_check_interval_secs: float) -> bool:
         """Wait for TCP port to be listening."""
         port: int | None = self.ready_params.get("port")
 
@@ -182,30 +187,90 @@ class Process(BaseModel):
                 with socket.create_connection(("localhost", port), timeout=1.0):
                     return True
             except Exception:  # noqa: BLE001
-                time.sleep(0.1)  # TODO: Configurable sleep time here, and for socket connection
+                time.sleep(ready_check_interval_secs)
         return False
 
-    def _wait_pipe_ready(self) -> bool:
+    def _wait_pipe_ready(self, ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via named pipe."""
-        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
+        if sys.platform == "win32":
+            return self._wait_pipe_ready_windows(ready_check_interval_secs)
+        return self._wait_pipe_ready_unix(ready_check_interval_secs)
 
-        # TODO: Will this work on Windows?
+    def _wait_pipe_ready_windows(self, ready_check_interval_secs: float) -> bool:
+        """Windows-specific named pipe implementation."""
+        try:
+            if sys.platform != "win32":
+                error_message = "Windows-specific pipe implementation called on non-Windows platform"
+                raise RuntimeError(error_message)
+
+            # Only import on Windows
+            import pywintypes
+            import win32file
+            import win32pipe
+        except ImportError:
+            error_message = "win32pipe module required for Windows pipe support"
+            raise RuntimeError(error_message) from None
+
+        pipe_name = f"\\\\.\\pipe\\{self.name}_ready"
+        pipe = None
+
+        try:
+            # Create pipe with appropriate security/sharing flags
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                1,
+                65536,
+                65536,
+                0,
+                None,
+            )
+
+            start_time = time.time()
+            while (time.time() - start_time) < self.ready_timeout_sec:
+                try:
+                    # Wait for client connection
+                    win32pipe.ConnectNamedPipe(pipe, None)
+                    # Read message
+                    result, data = win32file.ReadFile(pipe, 64 * 1024)
+                    if result == 0:
+                        return data.strip() == "ready"
+                except pywintypes.error:
+                    time.sleep(ready_check_interval_secs)
+
+            return False
+
+        finally:
+            if pipe:
+                win32file.CloseHandle(pipe)
+
+    def _wait_pipe_ready_unix(self, ready_check_interval_secs: float) -> bool:
+        """Unix-specific FIFO implementation."""
+        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
 
         if not pipe_path.exists():
             os.mkfifo(pipe_path)
 
-        start_time = time.time()
-        while (time.time() - start_time) < self.ready_timeout_sec:
-            try:
-                with Path.open(pipe_path) as fifo:
-                    return fifo.read().strip() == "ready"
-            except Exception:  # noqa: BLE001
-                time.sleep(0.1)
+        try:
+            start_time = time.time()
+            while (time.time() - start_time) < self.ready_timeout_sec:
+                try:
+                    with Path.open(pipe_path) as fifo:
+                        return fifo.read().strip() == "ready"
+                except Exception:  # noqa: BLE001
+                    time.sleep(ready_check_interval_secs)
+            return False
+        finally:
+            if pipe_path.exists():
+                pipe_path.unlink()
 
-        return False
-
-    def _wait_file_ready(self) -> bool:
+    def _wait_file_ready(self, ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via presence of a file."""
+        if "path" not in self.ready_params or not isinstance(self.ready_params["path"], str):
+            error_message = "Path not specified for file ready strategy or not a string"
+            raise RuntimeError(error_message)
+
         file_path = Path(self.ready_params.get("path", ""))
 
         # TODO: How do we ensure that clients delete the file?
@@ -218,13 +283,12 @@ class Process(BaseModel):
         while (time.time() - start_time) < self.ready_timeout_sec:
             if file_path.exists():
                 return True
-            time.sleep(0.1)
+            time.sleep(ready_check_interval_secs)
 
         return False
 
 
 class ProcessManifest(BaseModel):
-
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
@@ -326,18 +390,24 @@ class ProcessManifest(BaseModel):
 
 
 class ProcessPilot:
-
     """Class that manages a manifest-driven set of processes."""
 
-    def __init__(self, manifest: ProcessManifest, poll_interval: float = 0.1) -> None:
+    def __init__(
+        self,
+        manifest: ProcessManifest,
+        process_poll_interval: float = 0.1,
+        ready_check_interval: float = 0.1,
+    ) -> None:
         """
         Construct the ProcessPilot class.
 
         :param manifest: Manifest that contains a definition for each process
-        :param poll_interval: The amount of time to wait in-between service checks
+        :param poll_interval: The amount of time to wait in-between service checks in seconds
+        :param ready_check_interval: The amount of time to wait in-between readiness checks in seconds
         """
         self._manifest = manifest
-        self._poll_interval = poll_interval
+        self._process_poll_interval_secs = process_poll_interval
+        self._ready_check_interval_secs = ready_check_interval
         self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
@@ -354,7 +424,7 @@ class ProcessPilot:
             while not self._shutting_down:
                 self._process_loop()
 
-                sleep(self._poll_interval)
+                sleep(self._process_poll_interval_secs)
 
                 if not self._processes:
                     logging.warning("No running processes to manage--shutting down.")
@@ -372,11 +442,19 @@ class ProcessPilot:
                 entry.command,
             )
 
+            # Merge environment variables
+            process_env = os.environ.copy()
+            process_env.update(entry.env)
+
             ProcessPilot._execute_hooks(entry, "pre_start")
-            new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
+            new_popen_result = subprocess.Popen(  # noqa: S603
+                entry.command,
+                encoding="utf-8",
+                env=process_env,
+            )
 
             if entry.ready_strategy:
-                if entry.wait_until_ready(new_popen_result.pid):
+                if entry.wait_until_ready(new_popen_result.pid, self._ready_check_interval_secs):
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
                     error_message = f"Process {entry.name} failed to signal ready"
@@ -442,7 +520,11 @@ class ProcessPilot:
                     processes_to_add.append(
                         (
                             process_entry,
-                            subprocess.Popen(process_entry.command, encoding="utf-8"),  # noqa: S603
+                            subprocess.Popen(  # noqa: S603
+                                process_entry.command,
+                                encoding="utf-8",
+                                env={**os.environ, **process_entry.env},
+                            ),
                         ),
                     )
 

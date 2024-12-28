@@ -6,7 +6,12 @@
       "path": "sleep",
       "args": ["5"],
       "timeout": 3,
-      "shutdown_strategy": "do_not_restart"
+      "shutdown_strategy": "do_not_restart",
+      "env": {
+        "DATABASE_URL": "postgresql://localhost:5432/mydb",
+        "API_KEY": "dummy_key_123",
+        "LOG_LEVEL": "DEBUG"
+      }
     },
     {
       "name": "example 2",
