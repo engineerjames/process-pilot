@@ -9,9 +9,6 @@ process-pilot documentation
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-
-   api
-   examples
    
 .. automodule:: process_pilot.process
    :members:
