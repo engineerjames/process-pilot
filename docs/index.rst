@@ -9,6 +9,9 @@ process-pilot documentation
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
    
 .. automodule:: process_pilot.process
    :members:

@@ -70,9 +70,9 @@ processes:
 
 ## Process Lifecycle
 
-The following Mermaid diagram illustrates the process lifecycle and when various hook functions are called:
+The following diagram illustrates the process lifecycle and when various hook functions are called:
 
-```mermaid
+```{mermaid}
 graph TD
         A[Start Process Pilot] --> B[Initialize Processes]
         B --> C[Execute PRE_START Hooks]
@@ -113,7 +113,7 @@ The following diagrams illustrate how each strategy works:
 
 #### TCP Ready Strategy
 
-```mermaid
+```{mermaid}
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
@@ -136,7 +136,7 @@ sequenceDiagram
 
 #### Named Pipe Ready Strategy
 
-```mermaid
+```{mermaid}
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
@@ -159,7 +159,7 @@ sequenceDiagram
 
 #### File Ready Strategy
 
-```mermaid
+```{mermaid}
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
@@ -201,7 +201,7 @@ poetry run autopep8 --in-place --recursive .
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
 ## Contributing
 
