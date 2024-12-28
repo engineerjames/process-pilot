@@ -33,3 +33,6 @@ jobs:
       - name: Test with pytest
         run: |
           poetry run pytest -vv
+      - name: Build docs
+        run: |
+          poetry run sphinx-build -b html docs docs/_build/html
