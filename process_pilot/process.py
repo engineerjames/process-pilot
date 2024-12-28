@@ -130,9 +130,9 @@ class Process(BaseModel):
         :param hook_type: The type of hook to register the callback for
         :param callback: The function to call or a list of functions to call
         """
-
         if hook_type not in ("pre_start", "post_start", "on_shutdown", "on_restart"):
-            raise ValueError("Invalid hook type provided")
+            error_message = f"Invalid hook type provided: {hook_type}"
+            raise ValueError(error_message)
 
         if hook_type not in self.hooks:
             self.hooks[hook_type] = []
