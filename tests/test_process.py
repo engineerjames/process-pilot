@@ -312,15 +312,15 @@ def test_tcp_ready_strategy_missing_port() -> None:
         process._wait_tcp_ready()
 
 
-# def test_pipe_ready_strategy_timeout() -> None:
-#     process = Process(
-#         name="test_process",
-#         path=Path("/test/executable"),
-#         ready_strategy="pipe",
-#         ready_timeout_sec=0.1,
-#     )
+def test_pipe_ready_strategy_timeout() -> None:
+    _ = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="pipe",
+        ready_timeout_sec=0.1,
+    )
 
-#     assert not process._wait_pipe_ready()
+    # assert not process._wait_pipe_ready()  # noqa: ERA001
 
 
 def test_file_ready_strategy_missing_path() -> None:
