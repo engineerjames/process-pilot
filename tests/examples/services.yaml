@@ -3,4 +3,8 @@ processes:
     path: sleep
     args: ["5"]
     timeout: 1.0
-    shutdown_strategy: do_not_restart
+    env:
+      PORT: "8080"
+      REDIS_URL: "redis://localhost:6379"
+      DEBUG: "true"
+      APP_ENV: "development"

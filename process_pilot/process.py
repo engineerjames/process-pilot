@@ -83,6 +83,9 @@ class Process(BaseModel):
     args: list[str] = Field(default=[])
     """The arguments to pass to the executable when it is run."""
 
+    env: dict[str, str] = Field(default_factory=dict)
+    """Environment variables to pass to the process. These are merged with the parent process environment."""
+
     timeout: float | None = None
     """The amount of time to wait for the process to exit before forcibly killing it."""
 
@@ -439,8 +442,16 @@ class ProcessPilot:
                 entry.command,
             )
 
+            # Merge environment variables
+            process_env = os.environ.copy()
+            process_env.update(entry.env)
+
             ProcessPilot._execute_hooks(entry, "pre_start")
-            new_popen_result = subprocess.Popen(entry.command, encoding="utf-8")  # noqa: S603
+            new_popen_result = subprocess.Popen(  # noqa: S603
+                entry.command,
+                encoding="utf-8",
+                env=process_env,
+            )
 
             if entry.ready_strategy:
                 if entry.wait_until_ready(new_popen_result.pid, self._ready_check_interval_secs):
@@ -509,7 +520,11 @@ class ProcessPilot:
                     processes_to_add.append(
                         (
                             process_entry,
-                            subprocess.Popen(process_entry.command, encoding="utf-8"),  # noqa: S603
+                            subprocess.Popen(  # noqa: S603
+                                process_entry.command,
+                                encoding="utf-8",
+                                env={**os.environ, **process_entry.env},
+                            ),
                         ),
                     )
 

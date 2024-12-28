@@ -413,3 +413,25 @@ def test_process_pilot_stop_timeout(mocker: MockerFixture) -> None:
     pilot.stop()
 
     mock_popen.kill.assert_called_once()
+
+
+def test_process_environment_variables(mocker: MockerFixture) -> None:
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test_env", path=Path("/test/path"), env={"TEST_VAR": "test_value"}),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest=manifest)
+    mock_popen = mocker.patch("subprocess.Popen")
+
+    pilot._initialize_processes()
+
+    # Get the env dict that was passed to Popen
+    called_env = mock_popen.call_args[1]["env"]
+
+    # Verify our env var was included
+    assert called_env["TEST_VAR"] == "test_value"
+
+    # Verify we preserved parent env
+    assert "PATH" in called_env
