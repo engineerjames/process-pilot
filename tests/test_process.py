@@ -1,4 +1,4 @@
-import subprocess
+import subprocess  # noqa: INP001
 import tempfile
 from pathlib import Path
 from unittest import mock
