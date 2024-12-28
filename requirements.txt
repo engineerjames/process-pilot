@@ -1,0 +1,3 @@
+# Used only for readthedocs.io
+sphinx
+sphinx-rtd-theme
