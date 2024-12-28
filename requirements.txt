@@ -1,3 +1,14 @@
 # Used only for readthedocs.io
 sphinx
 sphinx-rtd-theme
+pylint
+pytest
+ruff
+mypy
+autopep8
+types-pyyaml
+pytest-mock
+types-psutil
+pydantic
+pyyaml
+psutil
