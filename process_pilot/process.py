@@ -221,7 +221,7 @@ class Process(BaseModel):
                 65536,
                 65536,
                 0,
-                None,  # type: ignore[arg-type]
+                None,
             )
 
             start_time = time.time()
