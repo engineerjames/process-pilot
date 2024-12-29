@@ -462,9 +462,7 @@ class ProcessPilot:
         )
 
     def _run(self) -> None:
-        """Start all services."""
         try:
-            logging.debug("Starting process pilot - Initializing processes.")
             self._initialize_processes()
 
             logging.debug("Entering main execution loop")
