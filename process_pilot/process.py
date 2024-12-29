@@ -6,7 +6,6 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -239,7 +238,13 @@ class Process(BaseModel):
 
     def _wait_pipe_ready_unix(self, ready_check_interval_secs: float) -> bool:
         """Unix-specific FIFO implementation."""
-        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
+        pipe_path = self.ready_params.get("path")
+
+        if not pipe_path:
+            msg = "Path not specified for pipe ready strategy"
+            raise RuntimeError(msg)
+
+        pipe_path = Path(pipe_path)
 
         if not pipe_path.exists():
             os.mkfifo(pipe_path)
@@ -284,6 +289,8 @@ class ProcessManifest(BaseModel):
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
+
+    _manifest_path: Path | None = None
 
     @model_validator(mode="after")
     def resolve_dependencies(self) -> "ProcessManifest":
@@ -373,6 +380,23 @@ class ProcessManifest(BaseModel):
 
         return self
 
+    def _resolve_paths_relative_to_manifest(self, manifest_path: Path) -> None:
+        """Resolve relative paths in the manifest to be relative to the manifest file."""
+        manifest_dir = manifest_path.parent
+
+        for process in self.processes:
+            if not process.path.is_absolute() and str(process.path) not in ("python, sleep"):
+                process.path = manifest_dir / process.path
+
+            # Check and resolve paths in arguments
+            resolved_args = []
+            for arg in process.args:
+                arg_path = Path(arg)
+                if arg_path.suffix and not arg_path.is_absolute():  # Check if the argument has a file extension
+                    arg_path = manifest_dir / arg_path
+                resolved_args.append(str(arg_path) if arg_path.suffix else arg)
+            process.args = resolved_args
+
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
@@ -383,7 +407,11 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             json_data = json.loads(f.read())
 
-        return cls(**json_data)
+        instance = cls(**json_data)
+
+        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
+
+        return instance
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
@@ -395,7 +423,11 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
-        return cls(**yaml_data)
+        instance = cls(**yaml_data)
+
+        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
+
+        return instance
 
 
 class ProcessPilot:
@@ -421,7 +453,10 @@ class ProcessPilot:
         self._shutting_down: bool = False
 
         # Configure the logger
-        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
 
     def start(self) -> None:
         """Start all services."""
@@ -467,7 +502,7 @@ class ProcessPilot:
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
                     error_message = f"Process {entry.name} failed to signal ready"
-                    raise RuntimeError(error_message)
+                    raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)
 

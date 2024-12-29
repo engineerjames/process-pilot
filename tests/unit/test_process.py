@@ -13,7 +13,7 @@ from process_pilot.process import Process, ProcessManifest, ProcessPilot, Proces
 
 
 def test_can_load_json() -> None:
-    manifest = ProcessManifest.from_json(Path(__file__).parent / "examples" / "services.json")
+    manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "examples" / "services.json")
 
     assert len(manifest.processes) == 4
     assert manifest.processes[0].args == ["15"]
@@ -22,7 +22,7 @@ def test_can_load_json() -> None:
 
 
 def test_can_load_yaml() -> None:
-    manifest = ProcessManifest.from_yaml(Path(__file__).parent / "examples" / "services.yaml")
+    manifest = ProcessManifest.from_yaml(Path(__file__).parent.parent / "examples" / "services.yaml")
 
     assert len(manifest.processes) == 1
     assert manifest.processes[0].args == ["5"]
@@ -483,6 +483,7 @@ def test_process_wait_until_ready_pipe_unix(mocker: MockerFixture) -> None:
         name="test_process",
         path=Path("/test/executable"),
         ready_strategy="pipe",
+        ready_params={"path": "/tmp/pipe_service_ready"},  # noqa: S108
     )
 
     mock_mkfifo = mocker.patch("os.mkfifo")
@@ -580,3 +581,55 @@ def test_process_pilot_stop(mocker: MockerFixture) -> None:
 
     mock_popen.terminate.assert_called_once()
     mock_popen.wait.assert_called_once_with(manifest.processes[0].timeout)
+
+
+def test_resolve_relative_paths() -> None:
+    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
+    process = Process(
+        name="test_process",
+        path=Path("relative/path/to/executable"),
+        args=["arg1", "relative/path/to/arg2.txt"],
+    )
+    manifest = ProcessManifest(processes=[process])
+    manifest._resolve_paths_relative_to_manifest(manifest_path)
+
+    assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
+    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
+
+
+def test_resolve_absolute_paths() -> None:
+    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
+    process = Process(
+        name="test_process",
+        path=Path("/absolute/path/to/executable"),
+        args=["arg1", "/absolute/path/to/arg2.txt"],
+    )
+    manifest = ProcessManifest(processes=[process])
+    manifest._resolve_paths_relative_to_manifest(manifest_path)
+
+    assert process.path == Path("/absolute/path/to/executable")
+    assert process.args == ["arg1", "/absolute/path/to/arg2.txt"]
+
+
+def test_resolve_python_path() -> None:
+    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
+    process = Process(name="test_process", path=Path("python"), args=["arg1", "relative/path/to/arg2.txt"])
+    manifest = ProcessManifest(processes=[process])
+    manifest._resolve_paths_relative_to_manifest(manifest_path)
+
+    assert process.path == Path("python")
+    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
+
+
+def test_resolve_argument_paths() -> None:
+    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
+    process = Process(
+        name="test_process",
+        path=Path("relative/path/to/executable"),
+        args=["arg1", "relative/path/to/arg2.txt", "arg3"],
+    )
+    manifest = ProcessManifest(processes=[process])
+    manifest._resolve_paths_relative_to_manifest(manifest_path)
+
+    assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
+    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt", "arg3"]
