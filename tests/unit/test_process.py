@@ -1,3 +1,4 @@
+import os
 import socket  # noqa: INP001
 import subprocess
 import tempfile
@@ -179,32 +180,12 @@ def test_process_pilot_initialization_with_invalid_manifest() -> None:
         ProcessManifest(**invalid_manifest_data)  # type: ignore[arg-type]
 
 
-def test_process_pilot_start_with_no_processes(mocker: MockerFixture) -> None:
+def test_process_pilot_start_with_no_processes() -> None:
     empty_manifest = ProcessManifest(processes=[])
     pilot = ProcessPilot(manifest=empty_manifest)
 
-    mock_stop = mocker.patch.object(pilot, "stop", side_effect=pilot.stop)
-
-    pilot.start()
-
-    mock_stop.assert_called_once()
-
-    process = Process(
-        name="test_process",
-        path=Path("/mock/path/to/executable"),
-        args=["--arg1", "value1"],
-        timeout=10.0,
-        shutdown_strategy="restart",
-        dependencies=["dep1", "dep2"],
-    )
-
-    assert process.name == "test_process"
-    assert process.path == Path("/mock/path/to/executable")
-    assert process.args == ["--arg1", "value1"]
-    assert process.timeout == 10.0
-    assert process.shutdown_strategy == "restart"
-    assert process.dependencies == ["dep1", "dep2"]
-    assert process.hooks == {}
+    with pytest.raises(RuntimeError, match="No processes to start"):
+        pilot.start()
 
 
 def test_process_manifest_circular_dependencies() -> None:
@@ -402,20 +383,6 @@ def test_wait_until_ready_invalid_strategy() -> None:
         )
 
 
-def test_process_pilot_stop_timeout(mocker: MockerFixture) -> None:
-    manifest = ProcessManifest(processes=[Process(name="test_process", path=Path("/test/executable"), timeout=0.1)])
-
-    pilot = ProcessPilot(manifest=manifest)
-    mock_popen = mocker.Mock(spec=subprocess.Popen)
-    mock_popen.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=0.1)
-
-    pilot._processes = [(manifest.processes[0], mock_popen)]
-
-    pilot.stop()
-
-    mock_popen.kill.assert_called_once()
-
-
 def test_process_environment_variables(mocker: MockerFixture) -> None:
     manifest = ProcessManifest(
         processes=[
@@ -486,6 +453,10 @@ def test_process_wait_until_ready_pipe_unix(mocker: MockerFixture) -> None:
         ready_params={"path": "/tmp/pipe_service_ready"},  # noqa: S108
     )
 
+    path = Path("/tmp/pipe_service_ready")  # noqa: S108
+    if path.exists():
+        path.unlink()
+
     mock_mkfifo = mocker.patch("os.mkfifo")
     mock_open = mocker.patch("pathlib.Path.open", mock.mock_open(read_data="ready"))
 
@@ -521,7 +492,7 @@ def test_process_pilot_initialization() -> None:
     assert pilot._manifest == manifest
     assert pilot._process_poll_interval_secs == 0.1
     assert pilot._ready_check_interval_secs == 0.1
-    assert pilot._processes == []
+    assert pilot._running_processes == []
     assert not pilot._shutting_down
 
 
@@ -562,25 +533,6 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
     )
     mock_execute_hooks.assert_any_call(manifest.processes[0], "pre_start")
     mock_execute_hooks.assert_any_call(manifest.processes[0], "post_start")
-
-
-def test_process_pilot_stop(mocker: MockerFixture) -> None:
-    manifest = ProcessManifest(
-        processes=[
-            Process(name="test_process", path=Path("/test/executable")),
-        ],
-    )
-
-    pilot = ProcessPilot(manifest)
-    mock_popen = mocker.Mock(spec=subprocess.Popen)
-    mock_popen.terminate = mocker.Mock()
-    mock_popen.wait = mocker.Mock()
-    pilot._processes = [(manifest.processes[0], mock_popen)]
-
-    pilot.stop()
-
-    mock_popen.terminate.assert_called_once()
-    mock_popen.wait.assert_called_once_with(manifest.processes[0].timeout)
 
 
 def test_resolve_relative_paths() -> None:

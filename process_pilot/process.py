@@ -451,7 +451,7 @@ class ProcessPilot:
         self._manifest = manifest
         self._process_poll_interval_secs = process_poll_interval
         self._ready_check_interval_secs = ready_check_interval
-        self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
+        self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
         self._thread = threading.Thread(target=self._run)
@@ -472,7 +472,7 @@ class ProcessPilot:
 
                 sleep(self._process_poll_interval_secs)
 
-                if not self._processes:
+                if not self._running_processes:
                     logging.warning("No running processes to manage--shutting down.")
                     self.stop()
 
@@ -482,6 +482,14 @@ class ProcessPilot:
 
     def start(self) -> None:
         """Start all services."""
+        if self._thread.is_alive():
+            error_message = "ProcessPilot is already running"
+            raise RuntimeError(error_message)
+
+        if len(self._manifest.processes) == 0:
+            error_message = "No processes to start"
+            raise RuntimeError(error_message)
+
         self._shutting_down = False
         self._thread.start()
 
@@ -514,7 +522,7 @@ class ProcessPilot:
                 logging.debug("No ready strategy for process %s", entry.name)
 
             ProcessPilot._execute_hooks(entry, "post_start")
-            self._processes.append((entry, new_popen_result))
+            self._running_processes.append((entry, new_popen_result))
 
     @staticmethod
     def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
@@ -530,7 +538,7 @@ class ProcessPilot:
         processes_to_remove: list[Process] = []
         processes_to_add: list[tuple[Process, subprocess.Popen[str]]] = []
 
-        for process_entry, process in self._processes:
+        for process_entry, process in self._running_processes:
             result = process.poll()
 
             # Process has not exited yet
@@ -587,11 +595,11 @@ class ProcessPilot:
                     )
 
         self._remove_processes(processes_to_remove)
-        self._processes.extend(processes_to_add)
+        self._running_processes.extend(processes_to_add)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:
         for p in processes_to_remove:
-            processes_to_investigate = [(proc, popen) for (proc, popen) in self._processes if proc == p]
+            processes_to_investigate = [(proc, popen) for (proc, popen) in self._running_processes if proc == p]
 
             for proc_to_inv in processes_to_investigate:
                 _, popen_obj = proc_to_inv
@@ -600,7 +608,7 @@ class ProcessPilot:
                         "Removing process with output: %s",
                         popen_obj.communicate(),
                     )
-                    self._processes.remove(proc_to_inv)
+                    self._running_processes.remove(proc_to_inv)
 
     def stop(self) -> None:
         """Stop all services."""
@@ -608,7 +616,7 @@ class ProcessPilot:
 
         self._thread.join()
 
-        for process_entry, process in self._processes:
+        for process_entry, process in self._running_processes:
             process.terminate()
 
             try:
