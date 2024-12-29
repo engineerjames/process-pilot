@@ -161,7 +161,7 @@ Process Pilot supports three different strategies to determine if a process is r
 
 Each ready strategy is only relevant for determining when dependent processes should be started. That is, if a given process has no dependencies, then specifying a ready strategy isn't currently meaningful. The following diagrams illustrate how each strategy works:
 
-#### TCP Ready Strategy
+### TCP Ready Strategy
 
 ```{mermaid}
 sequenceDiagram
@@ -184,7 +184,7 @@ sequenceDiagram
     deactivate P
 ```
 
-#### Named Pipe Ready Strategy
+### Named Pipe Ready Strategy
 
 ```{mermaid}
 sequenceDiagram
@@ -207,7 +207,7 @@ sequenceDiagram
     deactivate P
 ```
 
-#### File Ready Strategy
+### File Ready Strategy
 
 ```{mermaid}
 sequenceDiagram
