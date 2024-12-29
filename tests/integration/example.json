@@ -1,0 +1,31 @@
+{
+    "processes": [
+      {
+        "name": "tcp_service",
+        "path": "python",
+        "args": ["tcp_service.py"],
+        "ready_strategy": "tcp",
+        "ready_params": {
+          "port": 8080
+        }
+      },
+      {
+        "name": "pipe_service",
+        "path": "python",
+        "args": ["pipe_service.py"],
+        "ready_strategy": "pipe",
+        "ready_params": {
+          "path": "/tmp/pipe_service_ready"
+        }
+      },
+      {
+        "name": "file_service",
+        "path": "python",
+        "args": ["file_service.py"],
+        "ready_strategy": "file",
+        "ready_params": {
+          "path": "/tmp/file_service_ready.txt"
+        }
+      }
+    ]
+  }

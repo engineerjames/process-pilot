@@ -6,7 +6,7 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -144,6 +144,7 @@ class Process(BaseModel):
             memory_usage = found_process.memory_info()
             cpu_usage = found_process.cpu_percent()
         except psutil.NoSuchProcess:
+            logging.exception("Unable to find process to get stats for with PID %i", pid)
             return
         else:
             self._runtime_info.cpu_usage_percent = cpu_usage
@@ -239,7 +240,13 @@ class Process(BaseModel):
 
     def _wait_pipe_ready_unix(self, ready_check_interval_secs: float) -> bool:
         """Unix-specific FIFO implementation."""
-        pipe_path = Path(tempfile.gettempdir()) / f"{self.name}_ready"
+        pipe_path = self.ready_params.get("path")
+
+        if not pipe_path:
+            msg = "Path not specified for pipe ready strategy"
+            raise RuntimeError(msg)
+
+        pipe_path = Path(pipe_path)
 
         if not pipe_path.exists():
             os.mkfifo(pipe_path)
@@ -284,6 +291,8 @@ class ProcessManifest(BaseModel):
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
+
+    _manifest_path: Path | None = None
 
     @model_validator(mode="after")
     def resolve_dependencies(self) -> "ProcessManifest":
@@ -373,6 +382,23 @@ class ProcessManifest(BaseModel):
 
         return self
 
+    def _resolve_paths_relative_to_manifest(self, manifest_path: Path) -> None:
+        """Resolve relative paths in the manifest to be relative to the manifest file."""
+        manifest_dir = manifest_path.parent
+
+        for process in self.processes:
+            if not process.path.is_absolute() and str(process.path) not in ("python, sleep"):
+                process.path = manifest_dir / process.path
+
+            # Check and resolve paths in arguments
+            resolved_args = []
+            for arg in process.args:
+                arg_path = Path(arg)
+                if arg_path.suffix and not arg_path.is_absolute():  # Check if the argument has a file extension
+                    arg_path = manifest_dir / arg_path
+                resolved_args.append(str(arg_path) if arg_path.suffix else arg)
+            process.args = resolved_args
+
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
@@ -383,7 +409,11 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             json_data = json.loads(f.read())
 
-        return cls(**json_data)
+        instance = cls(**json_data)
+
+        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
+
+        return instance
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
@@ -395,7 +425,11 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
-        return cls(**yaml_data)
+        instance = cls(**yaml_data)
+
+        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
+
+        return instance
 
 
 class ProcessPilot:
@@ -417,16 +451,19 @@ class ProcessPilot:
         self._manifest = manifest
         self._process_poll_interval_secs = process_poll_interval
         self._ready_check_interval_secs = ready_check_interval
-        self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
+        self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
-        # Configure the logger
-        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+        self._thread = threading.Thread(target=self._run)
 
-    def start(self) -> None:
-        """Start all services."""
+        # Configure the logger
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
+
+    def _run(self) -> None:
         try:
-            logging.debug("Starting process pilot - Initializing processes.")
             self._initialize_processes()
 
             logging.debug("Entering main execution loop")
@@ -435,13 +472,26 @@ class ProcessPilot:
 
                 sleep(self._process_poll_interval_secs)
 
-                if not self._processes:
+                if not self._running_processes:
                     logging.warning("No running processes to manage--shutting down.")
                     self.stop()
 
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
+
+    def start(self) -> None:
+        """Start all services."""
+        if self._thread.is_alive():
+            error_message = "ProcessPilot is already running"
+            raise RuntimeError(error_message)
+
+        if len(self._manifest.processes) == 0:
+            error_message = "No processes to start"
+            raise RuntimeError(error_message)
+
+        self._shutting_down = False
+        self._thread.start()
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -467,12 +517,12 @@ class ProcessPilot:
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
                     error_message = f"Process {entry.name} failed to signal ready"
-                    raise RuntimeError(error_message)
+                    raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)
 
             ProcessPilot._execute_hooks(entry, "post_start")
-            self._processes.append((entry, new_popen_result))
+            self._running_processes.append((entry, new_popen_result))
 
     @staticmethod
     def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
@@ -488,7 +538,7 @@ class ProcessPilot:
         processes_to_remove: list[Process] = []
         processes_to_add: list[tuple[Process, subprocess.Popen[str]]] = []
 
-        for process_entry, process in self._processes:
+        for process_entry, process in self._running_processes:
             result = process.poll()
 
             # Process has not exited yet
@@ -545,11 +595,11 @@ class ProcessPilot:
                     )
 
         self._remove_processes(processes_to_remove)
-        self._processes.extend(processes_to_add)
+        self._running_processes.extend(processes_to_add)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:
         for p in processes_to_remove:
-            processes_to_investigate = [(proc, popen) for (proc, popen) in self._processes if proc == p]
+            processes_to_investigate = [(proc, popen) for (proc, popen) in self._running_processes if proc == p]
 
             for proc_to_inv in processes_to_investigate:
                 _, popen_obj = proc_to_inv
@@ -558,13 +608,15 @@ class ProcessPilot:
                         "Removing process with output: %s",
                         popen_obj.communicate(),
                     )
-                    self._processes.remove(proc_to_inv)
+                    self._running_processes.remove(proc_to_inv)
 
     def stop(self) -> None:
         """Stop all services."""
         self._shutting_down = True
 
-        for process_entry, process in self._processes:
+        self._thread.join()
+
+        for process_entry, process in self._running_processes:
             process.terminate()
 
             try:
