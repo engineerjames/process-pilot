@@ -12,3 +12,5 @@ types-psutil
 pydantic
 pyyaml
 psutil
+myst-parser
+sphinxcontrib-mermaid

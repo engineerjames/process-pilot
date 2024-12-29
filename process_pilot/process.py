@@ -22,14 +22,6 @@ ProcessHookType = Literal["pre_start", "post_start", "on_shutdown", "on_restart"
 ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
-class InvalidHookTypeError(Exception):
-    """Custom exception for invalid hook types."""
-
-    def __init__(self, hook_type: ProcessHookType) -> None:
-        """Construct custom exception for invalid hook types."""
-        super().__init__(f"Hook type provided is invalid: {hook_type}")
-
-
 class ProcessRuntimeInfo:
     """Contains process-related runtime information."""
 
