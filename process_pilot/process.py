@@ -144,6 +144,7 @@ class Process(BaseModel):
             memory_usage = found_process.memory_info()
             cpu_usage = found_process.cpu_percent()
         except psutil.NoSuchProcess:
+            logging.exception("Unable to find process to get stats for with PID %i", pid)
             return
         else:
             self._runtime_info.cpu_usage_percent = cpu_usage
