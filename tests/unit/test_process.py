@@ -1,4 +1,3 @@
-import os
 import socket  # noqa: INP001
 import subprocess
 import tempfile
