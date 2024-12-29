@@ -1,5 +1,5 @@
-import socket
-import subprocess  # noqa: INP001
+import socket  # noqa: INP001
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest import mock
