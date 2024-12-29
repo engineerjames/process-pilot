@@ -1,4 +1,5 @@
-import subprocess  # noqa: INP001
+import socket  # noqa: INP001
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -435,3 +436,147 @@ def test_process_environment_variables(mocker: MockerFixture) -> None:
 
     # Verify we preserved parent env
     assert "PATH" in called_env
+
+
+def test_process_manifest_validate_ready_config() -> None:
+    manifest_data = {
+        "processes": [
+            {
+                "name": "process1",
+                "path": "test",
+                "ready_strategy": "file",
+                "ready_params": {},
+            },
+            {
+                "name": "process2",
+                "path": "test",
+                "ready_strategy": "tcp",
+                "ready_params": {},
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="File and pipe ready strategies require 'path' parameter: process1"):
+        ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+
+    manifest_data["processes"][0]["ready_params"]["path"] = "/tmp/ready.txt"  # type: ignore[index]  # noqa: S108
+    with pytest.raises(ValueError, match="TCP ready strategy requires 'port' parameter: process2"):
+        ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+
+
+def test_process_wait_until_ready_tcp(mocker: MockerFixture) -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="tcp",
+        ready_timeout_sec=0.1,
+        ready_params={"port": 12345},
+    )
+
+    mock_socket = mocker.patch("socket.create_connection", side_effect=socket.error)
+    assert not process._wait_tcp_ready(0.1)
+    mock_socket.assert_called_with(("localhost", 12345), timeout=1.0)
+
+
+def test_process_wait_until_ready_pipe_unix(mocker: MockerFixture) -> None:
+    process = Process(
+        name="test_process",
+        path=Path("/test/executable"),
+        ready_strategy="pipe",
+    )
+
+    mock_mkfifo = mocker.patch("os.mkfifo")
+    mock_open = mocker.patch("pathlib.Path.open", mock.mock_open(read_data="ready"))
+
+    assert process._wait_pipe_ready_unix(0.1)
+    mock_mkfifo.assert_called_once()
+    mock_open.assert_called_once()
+
+
+def test_process_wait_until_ready_file(mocker: MockerFixture) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ready_file = Path(tmpdir) / "ready.txt"
+        process = Process(
+            name="test_process",
+            path=Path("/test/executable"),
+            ready_strategy="file",
+            ready_timeout_sec=0.1,
+            ready_params={"path": str(ready_file)},
+        )
+
+        mock_exists = mocker.patch("pathlib.Path.exists", return_value=True)
+        assert process._wait_file_ready(0.1)
+        mock_exists.assert_called_once()
+
+
+def test_process_pilot_initialization() -> None:
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test_process", path=Path("/test/executable")),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    assert pilot._manifest == manifest
+    assert pilot._process_poll_interval_secs == 0.1
+    assert pilot._ready_check_interval_secs == 0.1
+    assert pilot._processes == []
+    assert not pilot._shutting_down
+
+
+def test_process_pilot_start(mocker: MockerFixture) -> None:
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test_process", path=Path("/test/executable")),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    mock_initialize = mocker.patch.object(pilot, "_initialize_processes")
+    mock_process_loop = mocker.patch.object(pilot, "_process_loop", side_effect=pilot.stop)
+
+    pilot.start()
+
+    mock_initialize.assert_called_once()
+    mock_process_loop.assert_called_once()
+
+
+def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test_process", path=Path("/test/executable")),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    mock_popen = mocker.patch("subprocess.Popen")
+    mock_execute_hooks = mocker.patch.object(ProcessPilot, "_execute_hooks")
+
+    pilot._initialize_processes()
+
+    mock_popen.assert_called_once_with(
+        ["/test/executable"],
+        encoding="utf-8",
+        env=mocker.ANY,
+    )
+    mock_execute_hooks.assert_any_call(manifest.processes[0], "pre_start")
+    mock_execute_hooks.assert_any_call(manifest.processes[0], "post_start")
+
+
+def test_process_pilot_stop(mocker: MockerFixture) -> None:
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test_process", path=Path("/test/executable")),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.terminate = mocker.Mock()
+    mock_popen.wait = mocker.Mock()
+    pilot._processes = [(manifest.processes[0], mock_popen)]
+
+    pilot.stop()
+
+    mock_popen.terminate.assert_called_once()
+    mock_popen.wait.assert_called_once_with(manifest.processes[0].timeout)

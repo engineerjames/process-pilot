@@ -22,14 +22,6 @@ ProcessHookType = Literal["pre_start", "post_start", "on_shutdown", "on_restart"
 ReadyStrategy = Literal["tcp", "pipe", "file"]
 
 
-class InvalidHookTypeError(Exception):
-    """Custom exception for invalid hook types."""
-
-    def __init__(self, hook_type: ProcessHookType) -> None:
-        """Construct custom exception for invalid hook types."""
-        super().__init__(f"Hook type provided is invalid: {hook_type}")
-
-
 class ProcessRuntimeInfo:
     """Contains process-related runtime information."""
 
@@ -362,6 +354,23 @@ class ProcessManifest(BaseModel):
             visit(process)
 
         self.processes = ordered_processes
+        return self
+
+    @model_validator(mode="after")
+    def validate_ready_config(self) -> "ProcessManifest":
+        """Validate the ready strategy configuration."""
+        for p in self.processes:
+            if p.ready_strategy is None:
+                continue
+
+            if p.ready_strategy in ("file", "pipe") and "path" not in p.ready_params:
+                error_message = f"File and pipe ready strategies require 'path' parameter: {p.name}"
+                raise ValueError(error_message)
+
+            if p.ready_strategy == "tcp" and "port" not in p.ready_params:
+                error_message = f"TCP ready strategy requires 'port' parameter: {p.name}"
+                raise ValueError(error_message)
+
         return self
 
     @classmethod
