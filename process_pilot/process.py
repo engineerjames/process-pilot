@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -452,13 +453,15 @@ class ProcessPilot:
         self._processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
+        self._thread = threading.Thread(target=self._run)
+
         # Configure the logger
         logging.basicConfig(
             level=logging.DEBUG,
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
 
-    def start(self) -> None:
+    def _run(self) -> None:
         """Start all services."""
         try:
             logging.debug("Starting process pilot - Initializing processes.")
@@ -477,6 +480,11 @@ class ProcessPilot:
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
+
+    def start(self) -> None:
+        """Start all services."""
+        self._shutting_down = False
+        self._thread.start()
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -598,6 +606,8 @@ class ProcessPilot:
     def stop(self) -> None:
         """Stop all services."""
         self._shutting_down = True
+
+        self._thread.join()
 
         for process_entry, process in self._processes:
             process.terminate()
