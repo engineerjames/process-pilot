@@ -364,6 +364,23 @@ class ProcessManifest(BaseModel):
         self.processes = ordered_processes
         return self
 
+    @model_validator(mode="after")
+    def validate_ready_config(self) -> "ProcessManifest":
+        """Validate the ready strategy configuration."""
+        for p in self.processes:
+            if p.ready_strategy is None:
+                continue
+
+            if p.ready_strategy in ("file", "pipe") and "path" not in p.ready_params:
+                error_message = f"File and pipe ready strategies require 'path' parameter: {p.name}"
+                raise ValueError(error_message)
+
+            if p.ready_strategy == "tcp" and "port" not in p.ready_params:
+                error_message = f"TCP ready strategy requires 'port' parameter: {p.name}"
+                raise ValueError(error_message)
+
+        return self
+
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
