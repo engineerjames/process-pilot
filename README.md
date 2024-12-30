@@ -130,6 +130,41 @@ processes:
             ENV_VAR: value
 ```
 
+## Plugin System
+
+Process Pilot supports a plugin system that allows users to extend its functionality with custom hooks and ready strategies.
+
+### Creating a Plugin
+
+To create a plugin, define a class that inherits from `Plugin` and implement the `register_hooks` and `register_strategies` methods.
+
+Example:
+
+````python
+from process_pilot.plugin import Plugin
+
+class ExamplePlugin(Plugin):
+    def register_hooks(self) -> dict[str, Callable[[Any], None]]:
+        return {
+            "pre_start": self.pre_start_hook,
+            "post_start": self.post_start_hook,
+        }
+
+    def register_strategies(self) -> dict[str, Callable[[Any], bool]]:
+        return {
+            "custom_strategy": self.custom_ready_strategy,
+        }
+
+    def pre_start_hook(self, process: Any) -> None:
+        print(f"Pre-start hook for process {process.name}")
+
+    def post_start_hook(self, process: Any) -> None:
+        print(f"Post-start hook for process {process.name}")
+
+    def custom_ready_strategy(self, process: Any) -> bool:
+        print(f"Custom ready strategy for process {process.name}")
+        return True
+
 ## Process Lifecycle
 
 The following diagram illustrates the process lifecycle and when various hook functions are called:
@@ -149,7 +184,7 @@ graph TD
         J --> F
         H -->|do_not_restart| K[Stop Monitoring]
         H -->|shutdown_everything| L[Stop All Processes]
-```
+````
 
 ## Ready Strategies
 

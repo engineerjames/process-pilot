@@ -1,8 +1,10 @@
 """Main classes and definitions for ProcessPilot."""
 
+import importlib
 import json
 import logging
 import os
+import pkgutil
 import socket
 import subprocess
 import sys
@@ -11,15 +13,14 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from time import sleep
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import psutil
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-ShutdownStrategy = Literal["restart", "do_not_restart", "shutdown_everything"]
-ProcessHookType = Literal["pre_start", "post_start", "on_shutdown", "on_restart"]
-ReadyStrategy = Literal["tcp", "pipe", "file"]
+from process_pilot.plugin import Plugin
+from process_pilot.types import ProcessHookType, ReadyStrategy, ShutdownStrategy
 
 
 class ProcessRuntimeInfo:
@@ -438,6 +439,7 @@ class ProcessPilot:
     def __init__(
         self,
         manifest: ProcessManifest,
+        plugin_directory: Path | None = None,
         process_poll_interval: float = 0.1,
         ready_check_interval: float = 0.1,
     ) -> None:
@@ -461,6 +463,37 @@ class ProcessPilot:
             level=logging.DEBUG,
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
+
+        self.hooks: dict[ProcessHookType, list[Callable[[Process, subprocess.Popen[str]], None]]] = {}
+        self.strategies: dict[str, Callable[[Process, float], bool]] = {}
+
+        # Load plugins if necessary
+        if plugin_directory:
+            self.plugins: list[Plugin] = []
+            self.load_plugins(plugin_directory)
+
+    def load_plugins(self, plugin_dir: Path) -> None:
+        """
+        Load plugins from the specified directory.
+
+        :param plugin_dir: The directory to load plugins from
+        """
+        for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
+            module = importlib.import_module(name)
+            for attr in dir(module):
+                cls = getattr(module, attr)
+                if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
+                    plugin = cls()
+                    self.plugins.append(plugin)
+                    self.register_plugin(plugin)
+
+    def register_plugin(self, plugin: Plugin) -> None:
+        """Register hooks and strategies from the plugin."""
+        hooks = plugin.register_hooks()
+        strategies = plugin.register_strategies()
+
+        self.hooks.update(hooks)
+        self.strategies.update(strategies)
 
     def _run(self) -> None:
         try:
