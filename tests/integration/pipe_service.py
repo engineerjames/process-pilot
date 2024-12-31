@@ -17,4 +17,4 @@ def start_pipe_service(pipe_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    start_pipe_service(Path("/tmp/pipe_service_ready"))  # noqa: S108
+    start_pipe_service(Path("/tmp/pipe_service_ready"))

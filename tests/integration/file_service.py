@@ -12,4 +12,4 @@ def start_file_service(file_path: str) -> None:
 
 
 if __name__ == "__main__":
-    start_file_service("/tmp/file_service_ready.txt")  # noqa: S108
+    start_file_service("/tmp/file_service_ready.txt")

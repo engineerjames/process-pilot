@@ -4,16 +4,19 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from subprocess import Popen
+from typing import TYPE_CHECKING
 
 from process_pilot.plugin import Plugin
-from process_pilot.process import Process
 from process_pilot.types import ProcessHookType
+
+if TYPE_CHECKING:
+    from process_pilot.process import Process
 
 
 class FileReadyPlugin(Plugin):
     """Plugin to check if a process is ready by checking if a file exists."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[[Process, Popen[str]], None]]]:
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
         """
         Register hooks for the plugin.
 
@@ -21,7 +24,7 @@ class FileReadyPlugin(Plugin):
         """
         return {}
 
-    def register_strategies(self) -> dict[str, Callable[[Process, float], bool]]:
+    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register strategies for the plugin.
 
@@ -31,7 +34,7 @@ class FileReadyPlugin(Plugin):
             "file": self._wait_file_ready,
         }
 
-    def _wait_file_ready(self, process: Process, ready_check_interval_secs: float) -> bool:
+    def _wait_file_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         file_path = process.ready_params.get("path")
 
         if not file_path:

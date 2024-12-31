@@ -11,16 +11,19 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from subprocess import Popen
+from typing import TYPE_CHECKING
 
 from process_pilot.plugin import Plugin
-from process_pilot.process import Process
 from process_pilot.types import ProcessHookType
+
+if TYPE_CHECKING:
+    from process_pilot.process import Process
 
 
 class PipeReadyPlugin(Plugin):
     """Plugin that implements a named pipe (FIFO) based readiness check strategy."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[[Process, Popen[str]], None]]]:
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
         """
         Register hooks for the plugin.
 
@@ -28,7 +31,7 @@ class PipeReadyPlugin(Plugin):
         """
         return {}
 
-    def register_strategies(self) -> dict[str, Callable[[Process, float], bool]]:
+    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register strategies for the plugin.
 
@@ -38,13 +41,13 @@ class PipeReadyPlugin(Plugin):
             "pipe": self._wait_pipe_ready,
         }
 
-    def _wait_pipe_ready(self, process: Process, ready_check_interval_secs: float) -> bool:
+    def _wait_pipe_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via named pipe."""
         if sys.platform == "win32":
             return self._wait_pipe_ready_windows(process, ready_check_interval_secs)
         return self._wait_pipe_ready_unix(process, ready_check_interval_secs)
 
-    def _wait_pipe_ready_windows(self, process: Process, ready_check_interval_secs: float) -> bool:
+    def _wait_pipe_ready_windows(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Windows-specific named pipe implementation."""
         try:
             if sys.platform != "win32":
@@ -93,7 +96,7 @@ class PipeReadyPlugin(Plugin):
             if pipe:
                 win32file.CloseHandle(pipe)
 
-    def _wait_pipe_ready_unix(self, process: Process, ready_check_interval_secs: float) -> bool:
+    def _wait_pipe_ready_unix(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Unix-specific FIFO implementation."""
         pipe_path = process.ready_params.get("path")
 
@@ -110,7 +113,8 @@ class PipeReadyPlugin(Plugin):
             start_time = time.time()
             while (time.time() - start_time) < process.ready_timeout_sec:
                 try:
-                    with Path.open(pipe_path) as fifo:
+                    pipe_file_id = os.open(pipe_path, os.O_RDONLY | os.O_NONBLOCK)
+                    with os.fdopen(pipe_file_id) as fifo:
                         return fifo.read().strip() == "ready"
                 except Exception:  # noqa: BLE001
                     time.sleep(ready_check_interval_secs)

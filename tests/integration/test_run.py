@@ -1,7 +1,8 @@
 from pathlib import Path  # noqa: INP001
 from time import sleep
 
-from process_pilot.process import ProcessManifest, ProcessPilot
+from process_pilot.pilot import ProcessPilot
+from process_pilot.process import ProcessManifest
 
 
 def test_integration() -> None:

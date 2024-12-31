@@ -44,7 +44,7 @@ warn_unused_ignores = true   # Warn about unused # type: ignore comments
 no_implicit_optional = true  # Don't assume that variables can be None unless explicitly annotated
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["S101", "D103", "SLF001", "FBT003", "D100", "PLR2004"]
+"tests/*.py" = ["S101", "D103", "SLF001", "FBT003", "D100", "PLR2004", "S108"]
 
 [tool.ruff]
 line-length = 120

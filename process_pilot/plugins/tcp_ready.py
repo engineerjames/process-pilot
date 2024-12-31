@@ -9,16 +9,19 @@ import socket
 import time
 from collections.abc import Callable
 from subprocess import Popen
+from typing import TYPE_CHECKING
 
 from process_pilot.plugin import Plugin
-from process_pilot.process import Process
 from process_pilot.types import ProcessHookType
+
+if TYPE_CHECKING:
+    from process_pilot.process import Process
 
 
 class TCPReadyPlugin(Plugin):
     """Plugin that provides TCP-based readiness check strategies."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[[Process, Popen[str]], None]]]:
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
         """
         Register hooks for the plugin.
 
@@ -26,7 +29,7 @@ class TCPReadyPlugin(Plugin):
         """
         return {}
 
-    def register_strategies(self) -> dict[str, Callable[[Process, float], bool]]:
+    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register strategies for the plugin.
 
@@ -36,7 +39,7 @@ class TCPReadyPlugin(Plugin):
             "tcp": self._wait_tcp_ready,
         }
 
-    def _wait_tcp_ready(self, process: Process, ready_check_interval_secs: float) -> bool:
+    def _wait_tcp_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         port: int | None = process.ready_params.get("port")
         if not port:
             msg = "Port not specified for TCP ready strategy"
