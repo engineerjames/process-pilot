@@ -5,13 +5,15 @@ import sys
 import time
 from pathlib import Path
 
+# ruff: noqa: F401, RUF100, T201, BLE001
+
 if sys.platform == "win32":
     import pywintypes
     import win32event
     import win32file
     import win32pipe
 
-    def cleanup_windows(pipe_handle) -> None:
+    def cleanup_windows(pipe_handle) -> None:  # noqa: ANN001
         if pipe_handle:
             win32file.CloseHandle(pipe_handle)
         sys.exit(0)
@@ -34,7 +36,7 @@ if sys.platform == "win32":
             )
 
             # Set up cleanup on Ctrl+C
-            def handle_signal(signal, frame):
+            def handle_signal(_: int, _frame: object) -> None:
                 cleanup_windows(pipe_handle)
 
             signal.signal(signal.SIGINT, handle_signal)
@@ -70,8 +72,8 @@ else:
 
         os.mkfifo(pipe_path, 0o666)
 
-        signal.signal(signal.SIGINT, lambda s, f: cleanup_unix(pipe_path))
-        signal.signal(signal.SIGTERM, lambda s, f: cleanup_unix(pipe_path))
+        signal.signal(signal.SIGINT, lambda s, f: cleanup_unix(pipe_path))  # noqa: ARG005
+        signal.signal(signal.SIGTERM, lambda s, f: cleanup_unix(pipe_path))  # noqa: ARG005
 
         try:
             print(f"Named pipe service creating pipe at {pipe_path}")
