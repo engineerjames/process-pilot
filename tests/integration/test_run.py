@@ -18,3 +18,14 @@ def test_integration() -> None:
     sleep(10.0)
 
     pilot.stop()
+
+
+if __name__ == "__main__":
+    # Load the process manifest from a JSON file
+    manifest_path = Path(__file__).parent / "example.json"
+    manifest = ProcessManifest.from_json(manifest_path)
+
+    # Create a ProcessPilot instance with the loaded manifest
+    pilot = ProcessPilot(manifest)
+
+    pilot.start()

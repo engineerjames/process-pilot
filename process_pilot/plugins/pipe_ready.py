@@ -106,8 +106,10 @@ class PipeReadyPlugin(Plugin):
 
         pipe_path = Path(pipe_path)
 
-        if not pipe_path.exists():
-            os.mkfifo(pipe_path)
+        if pipe_path.exists():
+            pipe_path.unlink()
+
+        os.mkfifo(pipe_path)
 
         try:
             start_time = time.time()
@@ -115,7 +117,12 @@ class PipeReadyPlugin(Plugin):
                 try:
                     pipe_file_id = os.open(pipe_path, os.O_RDONLY | os.O_NONBLOCK)
                     with os.fdopen(pipe_file_id) as fifo:
-                        return fifo.read().strip() == "ready"
+                        data_read = fifo.read()
+                        if data_read == "ready":
+                            return True
+
+                        time.sleep(ready_check_interval_secs)
+                        continue
                 except Exception:  # noqa: BLE001
                     time.sleep(ready_check_interval_secs)
             return False

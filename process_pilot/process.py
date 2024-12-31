@@ -148,7 +148,7 @@ class Process(BaseModel):
             error_message = f"Ready strategy not found: {self.ready_strategy}"
             raise ValueError(error_message)
 
-        return ready_strategies[self.ready_strategy](self, self.ready_timeout_sec)
+        return ready_strategies[self.ready_strategy](self, 0.1)
 
 
 class ProcessManifest(BaseModel):
