@@ -12,7 +12,7 @@ from pathlib import Path
 project = "process-pilot"
 copyright = "2024, James Armes"  # noqa: A001
 author = "James Armes"
-release = "0.1.2"
+release = "0.2.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -27,6 +27,7 @@ extensions = [
     "myst_parser",
     "sphinxcontrib.mermaid",
 ]
+myst_fence_as_directive = ["mermaid"]
 
 # Myst Parser settings
 myst_enable_extensions = [
