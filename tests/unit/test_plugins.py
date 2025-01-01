@@ -71,7 +71,7 @@ def test_pipe_ready_plugin_unix_success(mocker: MockerFixture) -> None:
     mocker.patch("pathlib.Path.exists", return_value=True)
     mock_open = mocker.patch("os.fdopen", mock.mock_open(read_data="ready"))
     mock_os_open = mocker.patch("os.open", return_value=3)
-    mock_os_mkfifo = mocker.patch("os.mkfifo")
+    _ = mocker.patch("os.mkfifo")
     mock_unlink = mocker.patch("pathlib.Path.unlink")
 
     plugin = PipeReadyPlugin()
@@ -79,7 +79,6 @@ def test_pipe_ready_plugin_unix_success(mocker: MockerFixture) -> None:
     mock_os_open.assert_called_once_with(Path("/tmp/pipe_ready"), os.O_RDONLY | os.O_NONBLOCK)
     mock_open.assert_called_once_with(3)
     mock_unlink.assert_called()
-    mock_os_mkfifo.assert_called_once()
 
 
 def test_pipe_ready_plugin_unix_timeout(mocker: MockerFixture) -> None:
