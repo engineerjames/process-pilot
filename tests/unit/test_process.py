@@ -1,15 +1,13 @@
-import socket  # noqa: INP001
-import subprocess
-import tempfile
+import subprocess  # noqa: INP001
 from pathlib import Path
 from unittest import mock
 
 import psutil
 import pytest
-from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
-from process_pilot.process import Process, ProcessManifest, ProcessPilot, ProcessRuntimeInfo
+from process_pilot.pilot import ProcessPilot
+from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo
 
 
 def test_can_load_json() -> None:
@@ -270,64 +268,6 @@ def test_process_manifest_dependency_ordering() -> None:
     assert process_names == ["process1", "process2", "process3"]
 
 
-def test_tcp_ready_strategy_timeout() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="tcp",
-        ready_timeout_sec=0.1,
-        ready_params={"port": 12345},
-    )
-
-    assert not process._wait_tcp_ready(0.1)
-
-
-def test_tcp_ready_strategy_missing_port() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="tcp",
-    )
-
-    with pytest.raises(RuntimeError, match="Port not specified"):
-        process._wait_tcp_ready(0.1)
-
-
-def test_pipe_ready_strategy_timeout() -> None:
-    _ = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="pipe",
-        ready_timeout_sec=0.1,
-    )
-
-    # assert not process._wait_pipe_ready()  # noqa: ERA001
-
-
-def test_file_ready_strategy_missing_path() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="file",
-    )
-
-    with pytest.raises(RuntimeError, match="Path not specified"):
-        process._wait_file_ready(0.1)
-
-
-def test_file_ready_strategy_timeout() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        process = Process(
-            name="test_process",
-            path=Path("/test/executable"),
-            ready_strategy="file",
-            ready_timeout_sec=0.1,
-            ready_params={"path": f"{tmpdir}/ready.txt"},
-        )
-
-        assert not process._wait_file_ready(0.1)
-
-
 def test_register_invalid_hook_type() -> None:
     process = Process(
         name="test_process",
@@ -373,15 +313,6 @@ def test_process_stats_permission_error(mocker: MockerFixture) -> None:
     assert process._runtime_info.cpu_usage_percent == 0.0
 
 
-def test_wait_until_ready_invalid_strategy() -> None:
-    with pytest.raises(ValidationError):
-        _ = Process(
-            name="test_process",
-            path=Path("/test/executable"),
-            ready_strategy="invalid_strategy",  # type: ignore[arg-type]
-        )
-
-
 def test_process_environment_variables(mocker: MockerFixture) -> None:
     manifest = ProcessManifest(
         processes=[
@@ -425,59 +356,9 @@ def test_process_manifest_validate_ready_config() -> None:
     with pytest.raises(ValueError, match="File and pipe ready strategies require 'path' parameter: process1"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
-    manifest_data["processes"][0]["ready_params"]["path"] = "/tmp/ready.txt"  # type: ignore[index]  # noqa: S108
+    manifest_data["processes"][0]["ready_params"]["path"] = "/tmp/ready.txt"  # type: ignore[index]
     with pytest.raises(ValueError, match="TCP ready strategy requires 'port' parameter: process2"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
-
-
-def test_process_wait_until_ready_tcp(mocker: MockerFixture) -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="tcp",
-        ready_timeout_sec=0.1,
-        ready_params={"port": 12345},
-    )
-
-    mock_socket = mocker.patch("socket.create_connection", side_effect=socket.error)
-    assert not process._wait_tcp_ready(0.1)
-    mock_socket.assert_called_with(("localhost", 12345), timeout=1.0)
-
-
-def test_process_wait_until_ready_pipe_unix(mocker: MockerFixture) -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-        ready_strategy="pipe",
-        ready_params={"path": "/tmp/pipe_service_ready"},  # noqa: S108
-    )
-
-    path = Path("/tmp/pipe_service_ready")  # noqa: S108
-    if path.exists():
-        path.unlink()
-
-    mock_mkfifo = mocker.patch("os.mkfifo")
-    mock_open = mocker.patch("pathlib.Path.open", mock.mock_open(read_data="ready"))
-
-    assert process._wait_pipe_ready_unix(0.1)
-    mock_mkfifo.assert_called_once()
-    mock_open.assert_called_once()
-
-
-def test_process_wait_until_ready_file(mocker: MockerFixture) -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ready_file = Path(tmpdir) / "ready.txt"
-        process = Process(
-            name="test_process",
-            path=Path("/test/executable"),
-            ready_strategy="file",
-            ready_timeout_sec=0.1,
-            ready_params={"path": str(ready_file)},
-        )
-
-        mock_exists = mocker.patch("pathlib.Path.exists", return_value=True)
-        assert process._wait_file_ready(0.1)
-        mock_exists.assert_called_once()
 
 
 def test_process_pilot_initialization() -> None:

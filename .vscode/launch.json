@@ -1,0 +1,12 @@
+{
+    "configurations": [
+        {
+            "name": "Python Debugger",
+            "type": "debugpy",
+            "args": ["-Xfrozen_modules=off"],
+            "request": "launch",
+            "program": "${file}",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}

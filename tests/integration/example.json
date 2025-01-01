@@ -6,7 +6,7 @@
         "args": ["tcp_service.py"],
         "ready_strategy": "tcp",
         "ready_params": {
-          "port": 8080
+          "port": 9876
         }
       },
       {

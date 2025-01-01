@@ -1,25 +1,14 @@
-"""Main classes and definitions for ProcessPilot."""
-
-import json
+import json  # noqa: D100
 import logging
-import os
-import socket
-import subprocess
-import sys
-import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
-from time import sleep
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import psutil
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-ShutdownStrategy = Literal["restart", "do_not_restart", "shutdown_everything"]
-ProcessHookType = Literal["pre_start", "post_start", "on_shutdown", "on_restart"]
-ReadyStrategy = Literal["tcp", "pipe", "file"]
+from process_pilot.types import ProcessHookType, ShutdownStrategy
 
 
 class ProcessRuntimeInfo:
@@ -96,7 +85,7 @@ class Process(BaseModel):
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
     """Runtime information about the process"""
 
-    ready_strategy: ReadyStrategy | None = None
+    ready_strategy: str | None = None
     """Optional strategy to determine if the process is ready"""
 
     ready_timeout_sec: float = 10.0
@@ -150,141 +139,17 @@ class Process(BaseModel):
             self._runtime_info.cpu_usage_percent = cpu_usage
             self._runtime_info.memory_usage_mb = memory_usage.rss / (1024 * 1024)
 
-    def wait_until_ready(self, pid: int, ready_check_interval_secs: float) -> bool:
+    def wait_until_ready(
+        self,
+        ready_strategies: dict[str, Callable[["Process", float], bool]],
+    ) -> bool:
         """Wait for process to signal readiness."""
-        logging.debug("Waiting for process %s to signal ready with pid %i", self.name, pid)
+        # TODO: Don't think we need to wait for processes that have no dependents
+        if self.ready_strategy not in ready_strategies:
+            error_message = f"Ready strategy not found: {self.ready_strategy}"
+            raise ValueError(error_message)
 
-        if self.ready_strategy == "tcp":
-            return self._wait_tcp_ready(ready_check_interval_secs)
-
-        if self.ready_strategy == "pipe":
-            return self._wait_pipe_ready(ready_check_interval_secs)
-
-        if self.ready_strategy == "file":
-            return self._wait_file_ready(ready_check_interval_secs)
-
-        return True
-
-    def _wait_tcp_ready(self, ready_check_interval_secs: float) -> bool:
-        """Wait for TCP port to be listening."""
-        port: int | None = self.ready_params.get("port")
-
-        if not port:
-            error_message = "Port not specified for TCP ready strategy"
-            raise RuntimeError(error_message)
-
-        start_time = time.time()
-
-        while (time.time() - start_time) < self.ready_timeout_sec:
-            try:
-                with socket.create_connection(("localhost", port), timeout=1.0):
-                    return True
-            except Exception:  # noqa: BLE001
-                time.sleep(ready_check_interval_secs)
-        return False
-
-    def _wait_pipe_ready(self, ready_check_interval_secs: float) -> bool:
-        """Wait for ready signal via named pipe."""
-        if sys.platform == "win32":
-            return self._wait_pipe_ready_windows(ready_check_interval_secs)
-        return self._wait_pipe_ready_unix(ready_check_interval_secs)
-
-    def _wait_pipe_ready_windows(self, ready_check_interval_secs: float) -> bool:
-        """Windows-specific named pipe implementation."""
-        try:
-            if sys.platform != "win32":
-                error_message = "Windows-specific pipe implementation called on non-Windows platform"
-                raise RuntimeError(error_message)
-
-            # Only import on Windows
-            import pywintypes
-            import win32file
-            import win32pipe
-        except ImportError:
-            error_message = "win32pipe module required for Windows pipe support"
-            raise RuntimeError(error_message) from None
-
-        pipe_name = f"\\\\.\\pipe\\{self.name}_ready"
-        pipe = None
-
-        try:
-            # Create pipe with appropriate security/sharing flags
-            pipe = win32pipe.CreateNamedPipe(
-                pipe_name,
-                win32pipe.PIPE_ACCESS_INBOUND,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                1,
-                65536,
-                65536,
-                0,
-                None,
-            )
-
-            start_time = time.time()
-            while (time.time() - start_time) < self.ready_timeout_sec:
-                try:
-                    # Wait for client connection
-                    win32pipe.ConnectNamedPipe(pipe, None)
-                    # Read message
-                    result, data = win32file.ReadFile(pipe, 64 * 1024)
-                    if result == 0:
-                        return data.strip() == "ready"
-                except pywintypes.error:
-                    time.sleep(ready_check_interval_secs)
-
-            return False
-
-        finally:
-            if pipe:
-                win32file.CloseHandle(pipe)
-
-    def _wait_pipe_ready_unix(self, ready_check_interval_secs: float) -> bool:
-        """Unix-specific FIFO implementation."""
-        pipe_path = self.ready_params.get("path")
-
-        if not pipe_path:
-            msg = "Path not specified for pipe ready strategy"
-            raise RuntimeError(msg)
-
-        pipe_path = Path(pipe_path)
-
-        if not pipe_path.exists():
-            os.mkfifo(pipe_path)
-
-        try:
-            start_time = time.time()
-            while (time.time() - start_time) < self.ready_timeout_sec:
-                try:
-                    with Path.open(pipe_path) as fifo:
-                        return fifo.read().strip() == "ready"
-                except Exception:  # noqa: BLE001
-                    time.sleep(ready_check_interval_secs)
-            return False
-        finally:
-            if pipe_path.exists():
-                pipe_path.unlink()
-
-    def _wait_file_ready(self, ready_check_interval_secs: float) -> bool:
-        """Wait for ready signal via presence of a file."""
-        if "path" not in self.ready_params or not isinstance(self.ready_params["path"], str):
-            error_message = "Path not specified for file ready strategy or not a string"
-            raise RuntimeError(error_message)
-
-        file_path = Path(self.ready_params.get("path", ""))
-
-        # TODO: How do we ensure that clients delete the file?
-
-        if not file_path:
-            error_message = "Path not specified for file ready strategy"
-            raise RuntimeError(error_message)
-
-        start_time = time.time()
-        while (time.time() - start_time) < self.ready_timeout_sec:
-            if file_path.exists():
-                return True
-            time.sleep(ready_check_interval_secs)
-
-        return False
+        return ready_strategies[self.ready_strategy](self, 0.1)
 
 
 class ProcessManifest(BaseModel):
@@ -430,207 +295,3 @@ class ProcessManifest(BaseModel):
         instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
 
         return instance
-
-
-class ProcessPilot:
-    """Class that manages a manifest-driven set of processes."""
-
-    def __init__(
-        self,
-        manifest: ProcessManifest,
-        process_poll_interval: float = 0.1,
-        ready_check_interval: float = 0.1,
-    ) -> None:
-        """
-        Construct the ProcessPilot class.
-
-        :param manifest: Manifest that contains a definition for each process
-        :param poll_interval: The amount of time to wait in-between service checks in seconds
-        :param ready_check_interval: The amount of time to wait in-between readiness checks in seconds
-        """
-        self._manifest = manifest
-        self._process_poll_interval_secs = process_poll_interval
-        self._ready_check_interval_secs = ready_check_interval
-        self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
-        self._shutting_down: bool = False
-
-        self._thread = threading.Thread(target=self._run)
-
-        # Configure the logger
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-        )
-
-    def _run(self) -> None:
-        try:
-            self._initialize_processes()
-
-            logging.debug("Entering main execution loop")
-            while not self._shutting_down:
-                self._process_loop()
-
-                sleep(self._process_poll_interval_secs)
-
-                if not self._running_processes:
-                    logging.warning("No running processes to manage--shutting down.")
-                    self.stop()
-
-        except KeyboardInterrupt:
-            logging.warning("Detected keyboard interrupt--shutting down.")
-            self.stop()
-
-    def start(self) -> None:
-        """Start all services."""
-        if self._thread.is_alive():
-            error_message = "ProcessPilot is already running"
-            raise RuntimeError(error_message)
-
-        if len(self._manifest.processes) == 0:
-            error_message = "No processes to start"
-            raise RuntimeError(error_message)
-
-        self._shutting_down = False
-        self._thread.start()
-
-    def _initialize_processes(self) -> None:
-        """Initialize all processes and wait for ready signals."""
-        for entry in self._manifest.processes:
-            logging.debug(
-                "Executing command: %s",
-                entry.command,
-            )
-
-            # Merge environment variables
-            process_env = os.environ.copy()
-            process_env.update(entry.env)
-
-            ProcessPilot._execute_hooks(entry, "pre_start")
-            new_popen_result = subprocess.Popen(  # noqa: S603
-                entry.command,
-                encoding="utf-8",
-                env=process_env,
-            )
-
-            if entry.ready_strategy:
-                if entry.wait_until_ready(new_popen_result.pid, self._ready_check_interval_secs):
-                    logging.debug("Process %s signaled ready", entry.name)
-                else:
-                    error_message = f"Process {entry.name} failed to signal ready"
-                    raise RuntimeError(error_message)  # TODO: Should we handle this differently?
-            else:
-                logging.debug("No ready strategy for process %s", entry.name)
-
-            ProcessPilot._execute_hooks(entry, "post_start")
-            self._running_processes.append((entry, new_popen_result))
-
-    @staticmethod
-    def _execute_hooks(process: Process, hook_type: ProcessHookType) -> None:
-        if hook_type not in process.hooks or len(process.hooks[hook_type]) == 0:
-            logging.warning("No %s hooks available for process: '%s'", hook_type, process.name)
-            return
-
-        logging.debug("Executing hooks for process: '%s'", process.name)
-        for hook in process.hooks[hook_type]:
-            hook(process)
-
-    def _process_loop(self) -> None:
-        processes_to_remove: list[Process] = []
-        processes_to_add: list[tuple[Process, subprocess.Popen[str]]] = []
-
-        for process_entry, process in self._running_processes:
-            result = process.poll()
-
-            # Process has not exited yet
-            if result is None:
-                process_entry.record_process_stats(process.pid)
-                continue
-
-            processes_to_remove.append(process_entry)
-
-            ProcessPilot._execute_hooks(process_entry, "on_shutdown")
-
-            match process_entry.shutdown_strategy:
-                case "shutdown_everything":
-                    logging.warning(
-                        "%s shutdown with return code %i - shutting down everything.",
-                        process_entry,
-                        process.returncode,
-                    )
-                    self.stop()
-                case "do_not_restart":
-                    logging.warning(
-                        "%s shutdown with return code %i.",
-                        process_entry,
-                        process.returncode,
-                    )
-                case "restart":
-                    logging.warning(
-                        "%s shutdown with return code %i.  Restarting...",
-                        process_entry,
-                        process.returncode,
-                    )
-
-                    logging.debug(
-                        "Running command %s",
-                        process_entry.command,
-                    )
-
-                    processes_to_add.append(
-                        (
-                            process_entry,
-                            subprocess.Popen(  # noqa: S603
-                                process_entry.command,
-                                encoding="utf-8",
-                                env={**os.environ, **process_entry.env},
-                            ),
-                        ),
-                    )
-
-                    ProcessPilot._execute_hooks(process_entry, "on_restart")
-                case _:
-                    logging.error(
-                        "Shutdown strategy not handled: %s",
-                        process_entry.shutdown_strategy,
-                    )
-
-        self._remove_processes(processes_to_remove)
-        self._running_processes.extend(processes_to_add)
-
-    def _remove_processes(self, processes_to_remove: list[Process]) -> None:
-        for p in processes_to_remove:
-            processes_to_investigate = [(proc, popen) for (proc, popen) in self._running_processes if proc == p]
-
-            for proc_to_inv in processes_to_investigate:
-                _, popen_obj = proc_to_inv
-                if popen_obj.returncode is not None:
-                    logging.debug(
-                        "Removing process with output: %s",
-                        popen_obj.communicate(),
-                    )
-                    self._running_processes.remove(proc_to_inv)
-
-    def stop(self) -> None:
-        """Stop all services."""
-        self._shutting_down = True
-
-        self._thread.join()
-
-        for process_entry, process in self._running_processes:
-            process.terminate()
-
-            try:
-                process.wait(process_entry.timeout)
-            except subprocess.TimeoutExpired:
-                logging.warning(
-                    "Detected timeout for %s: forceably killing.",
-                    process_entry,
-                )
-                process.kill()
-
-
-if __name__ == "__main__":
-    manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "tests" / "examples" / "services.json")
-    pilot = ProcessPilot(manifest)
-
-    pilot.start()
