@@ -144,13 +144,13 @@ Example:
 from process_pilot.plugin import Plugin
 
 class ExamplePlugin(Plugin):
-    def register_hooks(self) -> dict[str, Callable[[Any], None]]:
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
         return {
             "pre_start": self.pre_start_hook,
             "post_start": self.post_start_hook,
         }
 
-    def register_strategies(self) -> dict[str, Callable[[Any], bool]]:
+    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         return {
             "custom_strategy": self.custom_ready_strategy,
         }
@@ -164,6 +164,24 @@ class ExamplePlugin(Plugin):
     def custom_ready_strategy(self, process: Any) -> bool:
         print(f"Custom ready strategy for process {process.name}")
         return True
+```
+
+When creating plugins it is important to keep in mind that you should always be checking readiness relative to
+the start time--and always comparing the difference to the timeout value that is specified in the manifest.  The
+simplest example of this can be seen in the `FileReadyPlugin`:
+
+```python
+start_time = time.time()
+while (time.time() - start_time) < process.ready_timeout_sec:
+    if file_path.exists():
+        return True
+    time.sleep(ready_check_interval_secs)
+
+# Timeout
+return False
+```
+
+Be careful not to use readiness checks that block the threads ability to check for a timeout condition.
 
 ## Process Lifecycle
 
