@@ -143,7 +143,7 @@ class Process(BaseModel):
         self,
         ready_strategies: dict[str, Callable[["Process", float], bool]],
     ) -> bool:
-        """Wait for process to signal readiness."""
+        """Wait for process to signal readiness."""  # TODO: Don't think we need to wait for processes that have no dependents
         if self.ready_strategy not in ready_strategies:
             error_message = f"Ready strategy not found: {self.ready_strategy}"
             raise ValueError(error_message)

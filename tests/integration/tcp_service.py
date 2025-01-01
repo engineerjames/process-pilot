@@ -18,4 +18,4 @@ def start_tcp_service(port: int) -> None:
 
 
 if __name__ == "__main__":
-    start_tcp_service(8080)
+    start_tcp_service(9876)

@@ -106,11 +106,6 @@ class PipeReadyPlugin(Plugin):
 
         pipe_path = Path(pipe_path)
 
-        if pipe_path.exists():
-            pipe_path.unlink()
-
-        os.mkfifo(pipe_path)
-
         try:
             start_time = time.time()
             while (time.time() - start_time) < process.ready_timeout_sec:
@@ -118,7 +113,7 @@ class PipeReadyPlugin(Plugin):
                     pipe_file_id = os.open(pipe_path, os.O_RDONLY | os.O_NONBLOCK)
                     with os.fdopen(pipe_file_id) as fifo:
                         data_read = fifo.read()
-                        if data_read == "ready":
+                        if data_read.strip() == "ready":
                             return True
 
                         time.sleep(ready_check_interval_secs)
