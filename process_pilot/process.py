@@ -127,7 +127,7 @@ class Process(BaseModel):
             self.hooks[hook_type].append(callback)
 
     def record_process_stats(self, pid: int) -> None:
-        """Get the memory usage of a process by its PID."""
+        """Get the memory and cpu usage of a process by its PID."""
         try:
             found_process = psutil.Process(pid)
             memory_usage = found_process.memory_info()
