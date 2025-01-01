@@ -187,7 +187,7 @@ Be careful not to use readiness checks that block the threads ability to check f
 
 The following diagram illustrates the process lifecycle and when various hook functions are called:
 
-```{mermaid}
+```mermaid
 graph TD
         A[Start Process Pilot] --> B[Initialize Processes]
         B --> C[Execute PRE_START Hooks]
@@ -216,7 +216,7 @@ Each ready strategy is only relevant for determining when dependent processes sh
 
 ### TCP Ready Strategy
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
@@ -239,7 +239,7 @@ sequenceDiagram
 
 ### Named Pipe Ready Strategy
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
@@ -262,7 +262,7 @@ sequenceDiagram
 
 ### File Ready Strategy
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant PP as Process Pilot
     participant P as Process
