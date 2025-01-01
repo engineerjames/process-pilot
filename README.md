@@ -140,7 +140,7 @@ To create a plugin, define a class that inherits from `Plugin` and implement the
 
 Example:
 
-````python
+```python
 from process_pilot.plugin import Plugin
 
 class ExamplePlugin(Plugin):
@@ -167,7 +167,7 @@ class ExamplePlugin(Plugin):
 ```
 
 When creating plugins it is important to keep in mind that you should always be checking readiness relative to
-the start time--and always comparing the difference to the timeout value that is specified in the manifest.  The
+the start time--and always comparing the difference to the timeout value that is specified in the manifest. The
 simplest example of this can be seen in the `FileReadyPlugin`:
 
 ```python
@@ -202,7 +202,7 @@ graph TD
         J --> F
         H -->|do_not_restart| K[Stop Monitoring]
         H -->|shutdown_everything| L[Stop All Processes]
-````
+```
 
 ## Ready Strategies
 
