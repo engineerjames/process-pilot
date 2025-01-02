@@ -144,7 +144,7 @@ Plugins in Process Pilot have two distinct registration scopes:
 
 ### Creating a Plugin
 
-To create a plugin, define a class that inherits from [`Plugin`](process_pilot/plugin.py) and implement the required methods:
+To create a plugin, define a class that inherits from `Plugin` and implement the required methods:
 
 ```python
 import time
