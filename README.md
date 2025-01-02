@@ -134,6 +134,14 @@ processes:
 
 Process Pilot supports a plugin system that allows users to extend its functionality with custom hooks, ready strategies, and process statistics handlers.
 
+### Plugin Registration Scoping
+
+Plugins in Process Pilot have two distinct registration scopes:
+
+1. **Process-Specific Hooks**: Process hooks (pre_start, post_start, on_shutdown, on_restart) are only registered for processes that explicitly request them in their manifest configuration.
+
+2. **Global Features**: Ready strategies and process stat handlers are registered globally and are available to all processes.
+
 ### Creating a Plugin
 
 To create a plugin, define a class that inherits from [`Plugin`](process_pilot/plugin.py) and implement the required methods:
@@ -152,6 +160,11 @@ if TYPE_CHECKING:
     from process_pilot.process import Process, ProcessStats
 
 class ExamplePlugin(Plugin):
+    @property
+    def name(self) -> str:
+        """Return the unique name of the plugin."""
+        return "custom_plugin"
+
     def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
         return {
             "pre_start": self.pre_start_hook,
@@ -189,6 +202,46 @@ return False
 ```
 
 Be careful not to use readiness checks that block the threads ability to check for a timeout condition.
+
+### Plugin Registration
+
+One way to use plugins with specific processes is to specify them in the manifest as shown below:
+
+```json
+{
+  "processes": [
+    {
+      "name": "example_process",
+      "path": "myapp",
+      "plugins": ["custom_plugin"], // Will receive hooks from custom_plugin
+      "ready_strategy": "custom_strategy", // Can use any registered strategy
+      "ready_timeout_sec": 10.0
+    },
+    {
+      "name": "another_process",
+      "path": "otherapp" // No plugin-specific hooks, but can use strategies
+    }
+  ]
+}
+```
+
+Another way you can register plugins is directly in Python code:
+
+```python
+from pathlib import Path
+from process_pilot.process import ProcessPilot, ProcessManifest
+from custom_plugin import CustomPlugin
+
+# Load manifest
+manifest = ProcessManifest.from_json(Path("manifest.json"))
+
+# Create pilot and register plugins
+pilot = ProcessPilot(manifest)
+pilot.register_plugins([CustomPlugin()])
+
+# Start processes
+pilot.start()
+```
 
 ## Process Lifecycle
 
