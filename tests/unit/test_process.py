@@ -104,7 +104,7 @@ def test_process_register_hook() -> None:
         path=Path("/mock/path/to/executable"),
     )
 
-    def mock_hook(process: Process) -> None:
+    def mock_hook(process: Process, popen: subprocess.Popen[str] | None) -> None:
         pass
 
     process.register_hook("pre_start", mock_hook)
@@ -238,16 +238,20 @@ def test_process_hooks_execution_order() -> None:
 
     execution_order = []
 
-    def hook1(_: Process) -> None:
+    def hook1(_: Process, _p: subprocess.Popen[str] | None) -> None:
         execution_order.append("hook1")
 
-    def hook2(_: Process) -> None:
+    def hook2(_: Process, _p: subprocess.Popen[str] | None) -> None:
         execution_order.append("hook2")
 
     process.register_hook("pre_start", [hook1, hook2])
 
     # Mock ProcessPilot._execute_hooks to actually call the hooks
-    ProcessPilot._execute_hooks(process, "pre_start")
+    ProcessPilot._execute_hooks(
+        process=process,
+        popen=None,
+        hook_type="pre_start",
+    )
 
     assert execution_order == ["hook1", "hook2"]
 
@@ -287,14 +291,18 @@ def test_failing_hook_execution() -> None:
         path=Path("/test/executable"),
     )
 
-    def failing_hook(_: Process) -> None:
+    def failing_hook(_: Process, _p: subprocess.Popen[str] | None) -> None:
         error_message = "Hook failed"
         raise RuntimeError(error_message)
 
     process.register_hook("pre_start", failing_hook)
 
     with pytest.raises(RuntimeError, match="Hook failed"):
-        ProcessPilot._execute_hooks(process, "pre_start")
+        ProcessPilot._execute_hooks(
+            process=process,
+            popen=None,
+            hook_type="pre_start",
+        )
 
 
 def test_process_stats_permission_error(mocker: MockerFixture) -> None:
@@ -411,8 +419,11 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
         encoding="utf-8",
         env=mocker.ANY,
     )
-    mock_execute_hooks.assert_any_call(manifest.processes[0], "pre_start")
-    mock_execute_hooks.assert_any_call(manifest.processes[0], "post_start")
+    assert mock_execute_hooks.call_args_list[0].kwargs["process"] == manifest.processes[0]
+    assert mock_execute_hooks.call_args_list[0].kwargs["hook_type"] == "pre_start"
+
+    assert mock_execute_hooks.call_args_list[1].kwargs["process"] == manifest.processes[0]
+    assert mock_execute_hooks.call_args_list[1].kwargs["hook_type"] == "post_start"
 
 
 def test_resolve_relative_paths() -> None:

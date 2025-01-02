@@ -21,7 +21,12 @@ if TYPE_CHECKING:
 class TCPReadyPlugin(Plugin):
     """Plugin that provides TCP-based readiness check strategies."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    @property
+    def name(self) -> str:
+        """Return the name of the plugin."""
+        return "tcp_ready"
+
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Register hooks for the plugin.
 

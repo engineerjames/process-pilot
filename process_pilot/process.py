@@ -3,6 +3,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from subprocess import Popen
 from typing import Any, cast
 
 import psutil
@@ -85,6 +86,9 @@ class Process(BaseModel):
     path: Path
     """The path to the executable that will be run."""
 
+    plugins: list[str] = Field(default=[])
+    """List of plugin names that should be applied to this process."""
+
     args: list[str] = Field(default=[])
     """The arguments to pass to the executable when it is run."""
 
@@ -103,7 +107,7 @@ class Process(BaseModel):
     This is a list of other names in the manifest.
     """
 
-    hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
+    hooks: dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]] = Field(default={})
     """A series of functions to call at various points in the process lifecycle."""
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
@@ -130,7 +134,7 @@ class Process(BaseModel):
     def register_hook(
         self,
         hook_type: ProcessHookType,
-        callback: Callable[["Process"], None] | list[Callable[["Process"], None]],
+        callback: Callable[["Process", Popen[str] | None], None] | list[Callable[["Process", Popen[str] | None], None]],
     ) -> None:
         """
         Register a callback for a particular process.

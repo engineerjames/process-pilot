@@ -16,7 +16,12 @@ if TYPE_CHECKING:
 class FileReadyPlugin(Plugin):
     """Plugin to check if a process is ready by checking if a file exists."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    @property
+    def name(self) -> str:
+        """Return the name of the plugin."""
+        return "file_ready"
+
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Register hooks for the plugin.
 

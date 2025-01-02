@@ -23,7 +23,12 @@ if TYPE_CHECKING:
 class PipeReadyPlugin(Plugin):
     """Plugin that implements a named pipe (FIFO) based readiness check strategy."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    @property
+    def name(self) -> str:
+        """Return the name of the plugin."""
+        return "pipe_ready"
+
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Register hooks for the plugin.
 

@@ -14,8 +14,13 @@ if TYPE_CHECKING:
 class Plugin(ABC):
     """Abstract base class for plugins."""
 
+    @property
     @abstractmethod
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    def name(self) -> str:
+        """Name of the plugin."""
+
+    @abstractmethod
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """Register custom hooks."""
 
     @abstractmethod
