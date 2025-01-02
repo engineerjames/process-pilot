@@ -12,7 +12,7 @@ from process_pilot.plugin import Plugin
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
-from process_pilot.process import Process, ProcessManifest
+from process_pilot.process import Process, ProcessManifest, ProcessStats
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
@@ -52,6 +52,7 @@ class ProcessPilot:
 
         self.hooks: dict[ProcessHookType, list[Callable[[Process, subprocess.Popen[str]], None]]] = {}
         self.ready_strategies: dict[str, Callable[[Process, float], bool]] = {}
+        self.stat_handlers: list[Callable[[list[ProcessStats]], None]] = []
 
         # Load default plugins regardless
         self.plugins: list[Plugin] = [
@@ -89,9 +90,11 @@ class ProcessPilot:
         for p in plugins:
             hooks = p.register_hooks()
             strategies = p.register_strategies()
+            stat_handlers = p.register_stats_handlers()
 
             self.hooks.update(hooks)
             self.ready_strategies.update(strategies)
+            self.stat_handlers.extend(stat_handlers)
 
     def _run(self) -> None:
         try:
@@ -226,6 +229,19 @@ class ProcessPilot:
                     )
 
         self._remove_processes(processes_to_remove)
+
+        # Collect and process stats
+        # TODO: This should likely be moved to a separate method, but also
+        #      should be done in a separate thread to avoid blocking the main loop
+        process_stats = [process_entry.get_stats() for process_entry, _ in self._running_processes]
+
+        # Call registered stats handlers
+        for handler in self.stat_handlers:
+            try:
+                handler(process_stats)
+            except Exception:
+                logging.exception("Error in stats handler %s", handler)
+
         self._running_processes.extend(processes_to_add)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:

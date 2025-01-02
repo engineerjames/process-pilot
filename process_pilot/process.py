@@ -1,6 +1,7 @@
 import json  # noqa: D100
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,6 +10,29 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from process_pilot.types import ProcessHookType, ShutdownStrategy
+
+
+@dataclass
+class ProcessStats:
+    """Container for process statistics."""
+
+    name: str
+    """Name of the process."""
+
+    path: Path
+    """Path to the process executable."""
+
+    memory_usage_mb: float
+    """Current memory usage in megabytes."""
+
+    cpu_usage_percent: float
+    """Current CPU usage as a percentage."""
+
+    max_memory_usage_mb: float
+    """Maximum memory usage recorded in megabytes."""
+
+    max_cpu_usage_percent: float
+    """Maximum CPU usage recorded as a percentage."""
 
 
 class ProcessRuntimeInfo:
@@ -150,6 +174,17 @@ class Process(BaseModel):
             raise ValueError(error_message)
 
         return ready_strategies[self.ready_strategy](self, 0.1)
+
+    def get_stats(self) -> ProcessStats:
+        """Create a ProcessStats object from current process state."""
+        return ProcessStats(
+            name=self.name,
+            path=self.path,
+            memory_usage_mb=self._runtime_info.memory_usage_mb,
+            cpu_usage_percent=self._runtime_info.cpu_usage_percent,
+            max_memory_usage_mb=self._runtime_info.max_memory_usage_mb,
+            max_cpu_usage_percent=self._runtime_info.max_cpu_usage,
+        )
 
 
 class ProcessManifest(BaseModel):

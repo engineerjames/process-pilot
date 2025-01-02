@@ -10,7 +10,7 @@ from process_pilot.plugin import Plugin
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process
+    from process_pilot.process import Process, ProcessStats
 
 
 class FileReadyPlugin(Plugin):
@@ -33,6 +33,10 @@ class FileReadyPlugin(Plugin):
         return {
             "file": self._wait_file_ready,
         }
+
+    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+        """Register handlers for process statistics."""
+        return []
 
     def _wait_file_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         file_path = process.ready_params.get("path")

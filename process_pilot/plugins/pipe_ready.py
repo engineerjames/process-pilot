@@ -17,7 +17,7 @@ from process_pilot.plugin import Plugin
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process
+    from process_pilot.process import Process, ProcessStats
 
 
 class PipeReadyPlugin(Plugin):
@@ -40,6 +40,10 @@ class PipeReadyPlugin(Plugin):
         return {
             "pipe": self._wait_pipe_ready,
         }
+
+    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+        """Register handlers for process statistics."""
+        return []
 
     def _wait_pipe_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via named pipe."""
