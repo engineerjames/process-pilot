@@ -1,7 +1,9 @@
 import json  # noqa: D100
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from subprocess import Popen
 from typing import Any, cast
 
 import psutil
@@ -9,6 +11,29 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from process_pilot.types import ProcessHookType, ShutdownStrategy
+
+
+@dataclass
+class ProcessStats:
+    """Container for process statistics."""
+
+    name: str
+    """Name of the process."""
+
+    path: Path
+    """Path to the process executable."""
+
+    memory_usage_mb: float
+    """Current memory usage in megabytes."""
+
+    cpu_usage_percent: float
+    """Current CPU usage as a percentage."""
+
+    max_memory_usage_mb: float
+    """Maximum memory usage recorded in megabytes."""
+
+    max_cpu_usage_percent: float
+    """Maximum CPU usage recorded as a percentage."""
 
 
 class ProcessRuntimeInfo:
@@ -61,6 +86,9 @@ class Process(BaseModel):
     path: Path
     """The path to the executable that will be run."""
 
+    plugins: list[str] = Field(default=[])
+    """List of plugin names that should be applied to this process."""
+
     args: list[str] = Field(default=[])
     """The arguments to pass to the executable when it is run."""
 
@@ -79,7 +107,7 @@ class Process(BaseModel):
     This is a list of other names in the manifest.
     """
 
-    hooks: dict[ProcessHookType, list[Callable[["Process"], None]]] = Field(default={})
+    hooks: dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]] = Field(default={})
     """A series of functions to call at various points in the process lifecycle."""
 
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
@@ -106,7 +134,7 @@ class Process(BaseModel):
     def register_hook(
         self,
         hook_type: ProcessHookType,
-        callback: Callable[["Process"], None] | list[Callable[["Process"], None]],
+        callback: Callable[["Process", Popen[str] | None], None] | list[Callable[["Process", Popen[str] | None], None]],
     ) -> None:
         """
         Register a callback for a particular process.
@@ -127,7 +155,7 @@ class Process(BaseModel):
             self.hooks[hook_type].append(callback)
 
     def record_process_stats(self, pid: int) -> None:
-        """Get the memory usage of a process by its PID."""
+        """Get the memory and cpu usage of a process by its PID."""
         try:
             found_process = psutil.Process(pid)
             memory_usage = found_process.memory_info()
@@ -150,6 +178,17 @@ class Process(BaseModel):
             raise ValueError(error_message)
 
         return ready_strategies[self.ready_strategy](self, 0.1)
+
+    def get_stats(self) -> ProcessStats:
+        """Create a ProcessStats object from current process state."""
+        return ProcessStats(
+            name=self.name,
+            path=self.path,
+            memory_usage_mb=self._runtime_info.memory_usage_mb,
+            cpu_usage_percent=self._runtime_info.cpu_usage_percent,
+            max_memory_usage_mb=self._runtime_info.max_memory_usage_mb,
+            max_cpu_usage_percent=self._runtime_info.max_cpu_usage,
+        )
 
 
 class ProcessManifest(BaseModel):

@@ -10,13 +10,18 @@ from process_pilot.plugin import Plugin
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process
+    from process_pilot.process import Process, ProcessStats
 
 
 class FileReadyPlugin(Plugin):
     """Plugin to check if a process is ready by checking if a file exists."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    @property
+    def name(self) -> str:
+        """Return the name of the plugin."""
+        return "file_ready"
+
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Register hooks for the plugin.
 
@@ -33,6 +38,10 @@ class FileReadyPlugin(Plugin):
         return {
             "file": self._wait_file_ready,
         }
+
+    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+        """Register handlers for process statistics."""
+        return []
 
     def _wait_file_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         file_path = process.ready_params.get("path")

@@ -15,13 +15,18 @@ from process_pilot.plugin import Plugin
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process
+    from process_pilot.process import Process, ProcessStats
 
 
 class TCPReadyPlugin(Plugin):
     """Plugin that provides TCP-based readiness check strategies."""
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+    @property
+    def name(self) -> str:
+        """Return the name of the plugin."""
+        return "tcp_ready"
+
+    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Register hooks for the plugin.
 
@@ -38,6 +43,10 @@ class TCPReadyPlugin(Plugin):
         return {
             "tcp": self._wait_tcp_ready,
         }
+
+    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+        """Register handlers for process statistics."""
+        return []
 
     def _wait_tcp_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         port: int | None = process.ready_params.get("port")
