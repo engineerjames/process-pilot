@@ -52,7 +52,8 @@ def create_dependency_graph(
         # Add dependency edges
         if process.dependencies:
             for dep in process.dependencies:
-                dot.edge(dep, process.name)
+                dep_name = dep if isinstance(dep, str) else dep.name
+                dot.edge(dep_name, process.name)
 
     # Determine output path
     output_path = Path(output_dir or ".") / f"process_dependencies.{output_format}"
@@ -104,6 +105,15 @@ def main() -> None:
     parser.add_argument("--detailed", action="store_true", help="Include detailed process information in tooltips")
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(levelname)s: %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
+
+    if args.detailed and args.format != "svg":
+        logging.warning("Detailed tooltips are only supported for SVG output")
 
     try:
         # Load manifest

@@ -402,6 +402,8 @@ process-graph manifest.json --format png --output-dir ./graphs
   - Ready strategy
   - Timeout values
 
+> NOTE: Detailed output is only available when the output is SVG
+
 ### Example
 
 Given this manifest:
