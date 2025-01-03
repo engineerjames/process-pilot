@@ -8,12 +8,16 @@ documentation = "https://process-pilot.readthedocs.io/"
 repository = "https://github.com/engineerjames/process-pilot"
 keywords = ["process", "management", "monitoring"]
 
+[tool.poetry.scripts]
+process-graph = "process_pilot.graph:main"
+
 [tool.poetry.dependencies]
 python = "^3.11"
 pydantic = "^2.10.2"
 pyyaml = "^6.0.2"
 psutil = "^6.1.1"
 pywin32 = {version = "^306", platform = "win32"}
+graphviz = "^0.20.3"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.1"
@@ -42,6 +46,11 @@ strict = true                # Enable strict mode for maximum type checking
 disallow_untyped_defs = true # Disallow functions and methods without type annotations
 warn_unused_ignores = true   # Warn about unused # type: ignore comments
 no_implicit_optional = true  # Don't assume that variables can be None unless explicitly annotated
+
+# Module-specific settings
+[[tool.mypy.overrides]]
+module = "graphviz"
+ignore_missing_imports = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S101", "D103", "SLF001", "FBT003", "D100", "PLR2004", "S108"]

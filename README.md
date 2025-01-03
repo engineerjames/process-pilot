@@ -355,6 +355,100 @@ processes:
       path: "/tmp/ready.txt" # for File
 ```
 
+## Dependency Graph Visualization
+
+Process Pilot includes a tool to visualize process dependencies using Graphviz. This helps you understand and validate the relationships between your processes.
+
+### Prerequisites
+
+The graph visualization requires Graphviz to be installed on your system:
+
+```sh
+# Ubuntu/Debian
+apt-get install graphviz
+
+# macOS
+brew install graphviz
+
+# Windows
+choco install graphviz
+```
+
+### Generating Dependency Graphs
+
+You can generate a dependency graph from your process manifest using the `graph.py` module:
+
+```sh
+process-graph manifest.json --format png --output-dir ./graphs
+```
+
+### Command Line Options
+
+- manifest_path: Path to your JSON or YAML manifest file (required)
+- --format: Output format (png, svg, or pdf) - defaults to png
+- --output-dir: Directory to save the generated graph
+- --detailed: Include detailed process information in tooltips
+
+### Graph Features
+
+- Process nodes with their names
+- Directed edges showing dependencies
+- Color-coding for ready strategies:
+  - Light blue: TCP ready strategy
+  - Light green: File ready strategy
+  - Light yellow: Pipe ready strategy
+- Detailed tooltips (when using --detailed) showing:
+  - Process path
+  - Ready strategy
+  - Timeout values
+
+> NOTE: Detailed output is only available when the output is SVG
+
+### Example
+
+Given this manifest:
+
+```json
+{
+  "processes": [
+    {
+      "name": "database",
+      "path": "postgresql",
+      "ready_strategy": "tcp",
+      "ready_params": {
+        "port": 5432
+      }
+    },
+    {
+      "name": "api",
+      "path": "api_server",
+      "dependencies": ["database"],
+      "ready_strategy": "file",
+      "ready_params": {
+        "path": "/tmp/api_ready"
+      }
+    },
+    {
+      "name": "worker",
+      "path": "worker_service",
+      "dependencies": ["api", "database"]
+    }
+  ]
+}
+```
+
+You could generate the graph via:
+
+```sh
+process-graph manifest.json --format svg
+```
+
+This will create a graph that will show:
+
+- `database` node (light blue) with no dependencies
+- `api` node (light green) depending on `database`
+- `worker` node (white) depending
+
 ## Development
 
 ### Running Tests
