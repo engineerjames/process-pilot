@@ -123,7 +123,7 @@ def main() -> None:
 
         logging.debug("Generated dependency graph: %s", output_path)
 
-    except Exception as e:
+    except Exception:
         logging.exception("Error generating graph")
         sys.exit(1)
 
