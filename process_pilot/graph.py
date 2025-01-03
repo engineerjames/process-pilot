@@ -1,4 +1,4 @@
-import argparse
+import argparse  # noqa: D100
 import logging
 import sys
 from pathlib import Path
@@ -13,9 +13,19 @@ def create_dependency_graph(
     manifest: ProcessManifest,
     output_format: Literal["png", "svg", "pdf"] = "png",
     output_dir: Path | None = None,
+    *,
     detailed: bool = False,
 ) -> Path:
-    """Create a dependency graph from a process manifest."""
+    """
+    Create a dependency graph from a process manifest.
+
+    :param manifest: The process manifest to generate the graph from.
+    :param output_format: The output format for the graph (png, svg, pdf).
+    :param output_dir: The directory to save the generated graph.
+    :param detailed: Include detailed process information in tooltips.
+
+    :returns: The path to the generated graph file.
+    """
     dot = graphviz.Digraph(comment="Process Dependencies")
     dot.attr(rankdir="LR")
 
@@ -25,7 +35,10 @@ def create_dependency_graph(
     # Add all processes as nodes
     for process in manifest.processes:
         # Node attributes
-        attrs = {"style": "filled", "fillcolor": colors.get(process.ready_strategy, "white")}
+        if process.ready_strategy:
+            attrs = {"style": "filled", "fillcolor": colors.get(process.ready_strategy, "white")}
+        else:
+            attrs = {"style": "filled"}
 
         if detailed:
             attrs["tooltip"] = (
@@ -46,7 +59,36 @@ def create_dependency_graph(
 
     # Render and save
     dot.render(output_path.stem, format=output_format, cleanup=True)
+
     return output_path
+
+
+def load_manifest(manifest_path: Path) -> ProcessManifest:
+    """
+    Load a process manifest from a JSON or YAML file.
+
+    :param manifest_path: Path to the manifest file.
+
+    :returns: The loaded process manifest.
+
+    :raises FileNotFoundError: If the manifest file does not exist.
+    :raises ValueError: If the manifest file is not JSON or YAML.
+    """
+    # Validate manifest path
+    if not manifest_path.exists():
+        msg = f"Manifest file not found: {manifest_path}"
+        raise FileNotFoundError(msg)
+
+    # Load manifest based on file extension
+    if manifest_path.suffix == ".json":
+        manifest = ProcessManifest.from_json(manifest_path)
+    elif manifest_path.suffix in {".yml", ".yaml"}:
+        manifest = ProcessManifest.from_yaml(manifest_path)
+    else:
+        msg = "Manifest must be JSON or YAML file"
+        raise ValueError(msg)
+
+    return manifest
 
 
 def main() -> None:
@@ -64,30 +106,25 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        # Validate manifest path
-        if not args.manifest_path.exists():
-            msg = f"Manifest file not found: {args.manifest_path}"
-            raise FileNotFoundError(msg)
-
-        # Load manifest based on file extension
-        if args.manifest_path.suffix == ".json":
-            manifest = ProcessManifest.from_json(args.manifest_path)
-        elif args.manifest_path.suffix in {".yml", ".yaml"}:
-            manifest = ProcessManifest.from_yaml(args.manifest_path)
-        else:
-            msg = "Manifest must be JSON or YAML file"
-            raise ValueError(msg)
+        # Load manifest
+        manifest = load_manifest(args.manifest_path)
 
         # Create output directory if needed
         if args.output_dir:
             args.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate graph
-        output_path = create_dependency_graph(manifest, args.format, args.output_dir, args.detailed)
-        print(f"Generated dependency graph: {output_path}")
+        output_path = create_dependency_graph(
+            manifest,
+            args.format,
+            args.output_dir,
+            detailed=args.detailed,
+        )
+
+        logging.debug("Generated dependency graph: %s", output_path)
 
     except Exception as e:
-        logging.error("Error generating graph: %s", e)
+        logging.exception("Error generating graph")
         sys.exit(1)
 
 
