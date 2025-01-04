@@ -106,7 +106,7 @@ class ProcessPilot:
             self.plugin_registry[plugin.name] = plugin
 
             hooks = plugin.register_hooks()
-            strategies = plugin.register_strategies()
+            strategies = plugin.register_ready_strategies()
             stat_handlers = plugin.register_stats_handlers()
 
             # Register hooks for processes that specify this plugin
@@ -176,6 +176,8 @@ class ProcessPilot:
                 entry.command,
                 encoding="utf-8",
                 env=process_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
 
             if entry.ready_strategy:
@@ -255,6 +257,8 @@ class ProcessPilot:
                         process_entry.command,
                         encoding="utf-8",
                         env={**os.environ, **process_entry.env},
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                     )
 
                     processes_to_add.append(

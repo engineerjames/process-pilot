@@ -34,7 +34,7 @@ class TCPReadyPlugin(Plugin):
         """
         return {}
 
-    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register strategies for the plugin.
 

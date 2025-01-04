@@ -256,7 +256,7 @@ class MockStatsPlugin(Plugin):
         """
         return {}
 
-    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register any ready strategies implemented by this plugin.
 
@@ -414,7 +414,7 @@ def test_plugin_registering_all_hook_types() -> None:
                 "on_restart": [dummy_hook],
             }
 
-        def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
         def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
@@ -479,7 +479,7 @@ def test_plugin_registration_order() -> None:  # noqa: C901
 
             return {"pre_start": [hook]}
 
-        def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
         def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
@@ -499,7 +499,7 @@ def test_plugin_registration_order() -> None:  # noqa: C901
 
             return {"pre_start": [hook]}
 
-        def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
         def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
@@ -545,7 +545,7 @@ def test_plugin_name_uniqueness() -> None:
         def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
             return {}
 
-        def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
         def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
