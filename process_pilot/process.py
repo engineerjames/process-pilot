@@ -3,14 +3,13 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from subprocess import Popen
 from typing import Any, cast
 
 import psutil
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from process_pilot.types import ProcessHookType, ShutdownStrategy
+from process_pilot.types import ShutdownStrategy
 
 
 @dataclass
