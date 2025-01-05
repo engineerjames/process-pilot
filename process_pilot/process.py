@@ -159,7 +159,7 @@ class Process(BaseModel):
         """Set the lifecycle hooks dictionary."""
         self._lifecycle_hook_functions = hooks
 
-    _stats_handler_functions: list[StatHandlerType] = Field(default_factory=list)
+    _stats_handler_functions: list[StatHandlerType] = []
 
     @property
     def stats_handler_functions(self) -> list[StatHandlerType]:

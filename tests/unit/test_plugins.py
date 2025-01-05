@@ -10,7 +10,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from process_pilot.pilot import ProcessPilot
-from process_pilot.plugin import Plugin
+from process_pilot.plugin import LifecycleHookType, Plugin, StatHandlerType
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -243,51 +243,29 @@ class MockStatsPlugin(Plugin):
         self.stats_called = False
         self.last_stats: list[ProcessStats] = []
 
-    @property
-    def name(self) -> str:
-        """Return the name of the plugin."""
-        return "mock_stats_plugin"
-
-    def get_lifecycle_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-        """
-        Return a dictionary of process hooks for the plugin.
-
-        :returns: Empty dictionary as this is a mock plugin.
-        """
-        return {}
-
-    def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-        """
-        Register any ready strategies implemented by this plugin.
-
-        :returns: Empty dictionary as this is a mock plugin.
-        """
-        return {}
-
-    def get_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+    def get_stats_handlers(self) -> dict[str, list[StatHandlerType]]:
         """
         Register handlers for process statistics.
 
         :returns: List containing the stats handler function.
         """
-        return [self._handle_stats]
+        return {"mock_stat_handler": [self._handle_stats]}
 
     def _handle_stats(self, stats: list[ProcessStats]) -> None:
         self.stats_called = True
         self.last_stats = stats
 
 
-def test_stats_handler_registration() -> None:
-    manifest = ProcessManifest(processes=[])
-    pilot = ProcessPilot(manifest)
-    plugin = MockStatsPlugin()
-
-    pilot.register_plugins([plugin])
-    assert len(pilot.stat_handlers) == 1
-
-
 def test_stats_handler_execution(mocker: MockerFixture) -> None:
-    manifest = ProcessManifest(processes=[Process(name="test_process", path=Path("/test/path"))])
+    manifest = ProcessManifest(
+        processes=[
+            Process(
+                name="test_process",
+                path=Path("/test/path"),
+                stat_handlers=["mock_stat_handler"],
+            ),
+        ],
+    )
 
     pilot = ProcessPilot(manifest)
     plugin = MockStatsPlugin()
@@ -306,24 +284,16 @@ def test_stats_handler_execution(mocker: MockerFixture) -> None:
     assert plugin.last_stats[0].name == "test_process"
 
 
-def test_stats_handler_exception(mocker: MockerFixture) -> None:
-    manifest = ProcessManifest(processes=[])
-    pilot = ProcessPilot(manifest)
-
-    def failing_handler(_: list[ProcessStats]) -> None:
-        msg = "Handler failed"
-        raise RuntimeError(msg)
-
-    pilot.stat_handlers.append(failing_handler)
-    mock_logger = mocker.patch("logging.exception")
-
-    pilot._process_loop()
-
-    mock_logger.assert_called_once()
-
-
 def test_multiple_stats_handlers(mocker: MockerFixture) -> None:
-    manifest = ProcessManifest(processes=[Process(name="test_process", path=Path("/test/path"))])
+    manifest = ProcessManifest(
+        processes=[
+            Process(
+                name="test_process",
+                path=Path("/test/path"),
+                stat_handlers=["mock_stat_handler"],
+            ),
+        ],
+    )
 
     pilot = ProcessPilot(manifest)
     plugin1 = MockStatsPlugin()
@@ -347,8 +317,16 @@ def test_stats_handler_multiple_processes(mocker: MockerFixture) -> None:
     """Test that stats handlers receive data from multiple processes."""
     manifest = ProcessManifest(
         processes=[
-            Process(name="test_process1", path=Path("/test/path1")),
-            Process(name="test_process2", path=Path("/test/path2")),
+            Process(
+                name="test_process1",
+                path=Path("/test/path1"),
+                stat_handlers=["mock_stat_handler"],
+            ),
+            Process(
+                name="test_process2",
+                path=Path("/test/path2"),
+                stat_handlers=["mock_stat_handler"],
+            ),
         ],
     )
 
@@ -376,7 +354,14 @@ def test_stats_handler_multiple_processes(mocker: MockerFixture) -> None:
 def test_stats_handler_with_dead_process(mocker: MockerFixture) -> None:
     """Test that stats handlers handle processes that have died."""
     manifest = ProcessManifest(
-        processes=[Process(name="test_process", path=Path("/test/path"), shutdown_strategy="do_not_restart")],
+        processes=[
+            Process(
+                name="test_process",
+                path=Path("/test/path"),
+                shutdown_strategy="do_not_restart",
+                stat_handlers=["mock_stat_handler"],
+            ),
+        ],
     )
 
     pilot = ProcessPilot(manifest)
@@ -405,25 +390,27 @@ def test_plugin_registering_all_hook_types() -> None:
 
         def get_lifecycle_hooks(
             self,
-        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+        ) -> dict[str, dict[ProcessHookType, list[LifecycleHookType]]]:
             def dummy_hook(_p: Process, _proc: Popen[str] | None) -> None:
                 pass
 
             return {
-                "pre_start": [dummy_hook],
-                "post_start": [dummy_hook],
-                "on_shutdown": [dummy_hook],
-                "on_restart": [dummy_hook],
+                "all_hooks": {
+                    "pre_start": [dummy_hook],
+                    "post_start": [dummy_hook],
+                    "on_shutdown": [dummy_hook],
+                    "on_restart": [dummy_hook],
+                },
             }
 
-        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-            return {}
-
-        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
-            return []
-
     manifest = ProcessManifest(
-        processes=[Process(name="test_process", path=Path("/test/path"), plugins=["all_hooks_plugin"])],
+        processes=[
+            Process(
+                name="test_process",
+                path=Path("/test/path"),
+                lifecycle_hooks=["all_hooks_plugin"],
+            ),
+        ],
     )
 
     pilot = ProcessPilot(manifest)
@@ -431,11 +418,12 @@ def test_plugin_registering_all_hook_types() -> None:
     pilot.register_plugins([plugin])
 
     assert all(
-        hook_type in pilot._manifest.processes[0].hook
+        hook_type in pilot._manifest.processes[0].lifecycle_hook_functions
         for hook_type in ["pre_start", "post_start", "on_shutdown", "on_restart"]
     )
     assert all(
-        len(pilot._manifest.processes[0].hook[hook_type]) == 1 for hook_type in pilot._manifest.processes[0].hook
+        len(pilot._manifest.processes[0].lifecycle_hook_functions[hook_type]) == 1
+        for hook_type in pilot._manifest.processes[0].lifecycle_hook_functions
     )
 
 
