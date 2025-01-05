@@ -85,7 +85,7 @@ def test_process_initialization() -> None:
     assert process.timeout == 10.0
     assert process.shutdown_strategy == "restart"
     assert process.dependencies == ["dep1", "dep2"]
-    assert process.hooks == {}
+    assert process.hook == {}
 
 
 def test_process_command_property() -> None:
@@ -108,11 +108,11 @@ def test_process_register_hook() -> None:
         pass
 
     process.register_hook("pre_start", mock_hook)
-    assert len(process.hooks["pre_start"]) == 1
-    assert process.hooks["pre_start"][0] == mock_hook
+    assert len(process.hook["pre_start"]) == 1
+    assert process.hook["pre_start"][0] == mock_hook
 
     process.register_hook("pre_start", [mock_hook, mock_hook])
-    assert len(process.hooks["pre_start"]) == 3
+    assert len(process.hook["pre_start"]) == 3
 
 
 def test_process_record_process_stats(mocker: MockerFixture) -> None:

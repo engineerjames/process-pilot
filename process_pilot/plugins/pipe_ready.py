@@ -8,35 +8,19 @@ of 'ready' in a named pipe.
 import os
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
-from subprocess import Popen
 from typing import TYPE_CHECKING
 
-from process_pilot.plugin import Plugin
-from process_pilot.types import ProcessHookType
+from process_pilot.plugin import Plugin, ReadyStrategyType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process, ProcessStats
+    from process_pilot.process import Process
 
 
 class PipeReadyPlugin(Plugin):
     """Plugin that implements a named pipe (FIFO) based readiness check strategy."""
 
-    @property
-    def name(self) -> str:
-        """Return the name of the plugin."""
-        return "pipe_ready"
-
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-        """
-        Register hooks for the plugin.
-
-        :returns: A dictionary mapping process hook types to their corresponding functions.
-        """
-        return {}
-
-    def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def get_ready_strategies(self) -> dict[str, ReadyStrategyType]:
         """
         Register strategies for the plugin.
 
@@ -45,10 +29,6 @@ class PipeReadyPlugin(Plugin):
         return {
             "pipe": self._wait_pipe_ready,
         }
-
-    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
-        """Register handlers for process statistics."""
-        return []
 
     def _wait_pipe_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via named pipe."""

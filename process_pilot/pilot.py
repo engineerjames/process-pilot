@@ -50,9 +50,6 @@ class ProcessPilot:
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
 
-        self.ready_strategies: dict[str, Callable[[Process, float], bool]] = {}
-        self.stat_handlers: list[Callable[[list[ProcessStats]], None]] = []
-
         # Load default plugins regardless
         file_ready_plugin = FileReadyPlugin()
         pipe_ready_plugin = PipeReadyPlugin()
@@ -69,7 +66,7 @@ class ProcessPilot:
         if plugin_directory:
             self.load_plugins(plugin_directory)
 
-        logging.debug("Loaded the following plugins: %s", self.plugin_registry.values())
+        logging.debug("Loaded the following plugins: %s", self.plugin_registry.keys())
 
         logging.debug("Registering plugins")
         self.register_plugins(list(self.plugin_registry.values()))
@@ -80,20 +77,15 @@ class ProcessPilot:
 
         :param plugin_dir: The directory to load plugins from
         """
+        plugins_to_register: list[Plugin] = []
+
         for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
             module = importlib.import_module(name)
             for attr in dir(module):
                 cls = getattr(module, attr)
                 if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
                     plugin = cls()
-
-                    if plugin.name in self.plugin_registry:
-                        logging.warning(
-                            "Plugin %s already registered--overwriting",
-                            plugin.name,
-                        )
-
-                    self.plugin_registry[plugin.name] = plugin
+                    plugins_to_register.append(plugin)
 
     def register_plugins(self, plugins: list[Plugin]) -> None:
         """Register plugins and their hooks/strategies."""
@@ -105,17 +97,18 @@ class ProcessPilot:
                 )
             self.plugin_registry[plugin.name] = plugin
 
-            hooks = plugin.register_hooks()
-            strategies = plugin.register_ready_strategies()
-            stat_handlers = plugin.register_stats_handlers()
+            # Process each plugin
+            hooks = plugin.get_lifecycle_hooks()
+            strategies = plugin.get_ready_strategies()
+            stat_handlers = plugin.get_stats_handlers()
 
             # Register hooks for processes that specify this plugin
             for process in self._manifest.processes:
                 if plugin.name in process.plugins:
                     for hook_type, hook_list in hooks.items():
-                        if hook_type not in process.hooks:
-                            process.hooks[hook_type] = []
-                        process.hooks[hook_type].extend(hook_list)
+                        if hook_type not in process.hook:
+                            process.hook[hook_type] = []
+                        process.hook[hook_type].extend(hook_list)
 
             # Register strategies globally
             self.ready_strategies.update(strategies)
@@ -199,12 +192,12 @@ class ProcessPilot:
 
     @staticmethod
     def _execute_hooks(process: Process, popen: subprocess.Popen[str] | None, hook_type: ProcessHookType) -> None:
-        if hook_type not in process.hooks or len(process.hooks[hook_type]) == 0:
+        if hook_type not in process.hook or len(process.hook[hook_type]) == 0:
             logging.warning("No %s hooks available for process: '%s'", hook_type, process.name)
             return
 
         logging.debug("Executing hooks for process: '%s'", process.name)
-        for hook in process.hooks[hook_type]:
+        for hook in process.hook[hook_type]:
             hook(process, popen)
 
     def _process_loop(self) -> None:

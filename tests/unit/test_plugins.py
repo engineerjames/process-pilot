@@ -248,7 +248,7 @@ class MockStatsPlugin(Plugin):
         """Return the name of the plugin."""
         return "mock_stats_plugin"
 
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+    def get_lifecycle_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
         """
         Return a dictionary of process hooks for the plugin.
 
@@ -256,7 +256,7 @@ class MockStatsPlugin(Plugin):
         """
         return {}
 
-    def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
         """
         Register any ready strategies implemented by this plugin.
 
@@ -264,7 +264,7 @@ class MockStatsPlugin(Plugin):
         """
         return {}
 
-    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
+    def get_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
         """
         Register handlers for process statistics.
 
@@ -403,7 +403,9 @@ def test_plugin_registering_all_hook_types() -> None:
         def name(self) -> str:
             return "all_hooks_plugin"
 
-        def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+        def get_lifecycle_hooks(
+            self,
+        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
             def dummy_hook(_p: Process, _proc: Popen[str] | None) -> None:
                 pass
 
@@ -414,10 +416,10 @@ def test_plugin_registering_all_hook_types() -> None:
                 "on_restart": [dummy_hook],
             }
 
-        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
-        def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
+        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
             return []
 
     manifest = ProcessManifest(
@@ -429,11 +431,11 @@ def test_plugin_registering_all_hook_types() -> None:
     pilot.register_plugins([plugin])
 
     assert all(
-        hook_type in pilot._manifest.processes[0].hooks
+        hook_type in pilot._manifest.processes[0].hook
         for hook_type in ["pre_start", "post_start", "on_shutdown", "on_restart"]
     )
     assert all(
-        len(pilot._manifest.processes[0].hooks[hook_type]) == 1 for hook_type in pilot._manifest.processes[0].hooks
+        len(pilot._manifest.processes[0].hook[hook_type]) == 1 for hook_type in pilot._manifest.processes[0].hook
     )
 
 
@@ -473,16 +475,18 @@ def test_plugin_registration_order() -> None:  # noqa: C901
         def name(self) -> str:
             return "plugin1"
 
-        def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+        def get_lifecycle_hooks(
+            self,
+        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
             def hook(_p: Process, _proc: Popen[str] | None) -> None:
                 execution_order.append("plugin1_hook")
 
             return {"pre_start": [hook]}
 
-        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
-        def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
+        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
             def handler(_: list[ProcessStats]) -> None:
                 execution_order.append("plugin1_stats")
 
@@ -493,16 +497,18 @@ def test_plugin_registration_order() -> None:  # noqa: C901
         def name(self) -> str:
             return "plugin2"
 
-        def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+        def get_lifecycle_hooks(
+            self,
+        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
             def hook(_p: Process, _proc: Popen[str] | None) -> None:
                 execution_order.append("plugin2_hook")
 
             return {"pre_start": [hook]}
 
-        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
-        def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
+        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
             def handler(_: list[ProcessStats]) -> None:
                 execution_order.append("plugin2_stats")
 
@@ -542,13 +548,15 @@ def test_plugin_name_uniqueness() -> None:
         def name(self) -> str:
             return "pipe_ready"  # Duplicate name
 
-        def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
+        def get_lifecycle_hooks(
+            self,
+        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
             return {}
 
-        def register_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
             return {}
 
-        def register_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
+        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
             return []
 
     manifest = ProcessManifest(processes=[])

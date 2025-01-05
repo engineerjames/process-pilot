@@ -86,9 +86,6 @@ class Process(BaseModel):
     path: Path
     """The path to the executable that will be run."""
 
-    plugins: list[str] = Field(default=[])
-    """List of plugin names that should be applied to this process."""
-
     args: list[str] = Field(default=[])
     """The arguments to pass to the executable when it is run."""
 
@@ -107,14 +104,25 @@ class Process(BaseModel):
     This is a list of other names in the manifest.
     """
 
-    hooks: dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]] = Field(default={})
-    """A series of functions to call at various points in the process lifecycle."""
+    lifecycle_hooks: list[str] | None = Field(default=[])
+    """
+    An optional series of function names to call at various points in the process lifecycle. The function names must
+    match the names of the functions in the provided plugin. That is, if you have loaded a plugin that provides
+    function 'on_start' that you want called, the manifest entry should include 'on_start' in its list.
+    """
 
-    _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
-    """Runtime information about the process"""
+    stat_handlers: list[str] | None = Field(default=[])
+    """
+    An optional series of function names to call whenever the process statistics are gathered. The function names must
+    match the names of the functions in the provided plugin. That is, if you have loaded a plugin that provides
+    function 'email_stats' that you want called, the manifest entry should include 'email_stats' in its list.
+    """
 
     ready_strategy: str | None = None
     """Optional strategy to determine if the process is ready"""
+
+    _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
+    """Runtime information about the process"""
 
     ready_timeout_sec: float = 10.0
     """The amount of time to wait for the process to signal readiness before giving up"""
@@ -130,29 +138,6 @@ class Process(BaseModel):
         :returns: A combined list of strings that contains both the executable path and all arguments
         """
         return [str(self.path), *self.args]
-
-    def register_hook(
-        self,
-        hook_type: ProcessHookType,
-        callback: Callable[["Process", Popen[str] | None], None] | list[Callable[["Process", Popen[str] | None], None]],
-    ) -> None:
-        """
-        Register a callback for a particular process.
-
-        :param hook_type: The type of hook to register the callback for
-        :param callback: The function to call or a list of functions to call
-        """
-        if hook_type not in ("pre_start", "post_start", "on_shutdown", "on_restart"):
-            error_message = f"Invalid hook type provided: {hook_type}"
-            raise ValueError(error_message)
-
-        if hook_type not in self.hooks:
-            self.hooks[hook_type] = []
-
-        if isinstance(callback, list):
-            self.hooks[hook_type].extend(callback)
-        else:
-            self.hooks[hook_type].append(callback)
 
     def record_process_stats(self, pid: int) -> None:
         """Get the memory and cpu usage of a process by its PID."""
