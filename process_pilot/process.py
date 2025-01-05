@@ -1,6 +1,5 @@
 import json  # noqa: D100
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -9,7 +8,8 @@ import psutil
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from process_pilot.types import ShutdownStrategy
+from process_pilot.plugin import LifecycleHookType, ReadyStrategyType, StatHandlerType
+from process_pilot.types import ProcessHookType, ShutdownStrategy
 
 
 @dataclass
@@ -103,14 +103,14 @@ class Process(BaseModel):
     This is a list of other names in the manifest.
     """
 
-    lifecycle_hooks: list[str] | None = Field(default=[])
+    lifecycle_hooks: list[str] = Field(default=[])
     """
     An optional series of function names to call at various points in the process lifecycle. The function names must
     match the names of the functions in the provided plugin. That is, if you have loaded a plugin that provides
     function 'on_start' that you want called, the manifest entry should include 'on_start' in its list.
     """
 
-    stat_handlers: list[str] | None = Field(default=[])
+    stat_handlers: list[str] = Field(default=[])
     """
     An optional series of function names to call whenever the process statistics are gathered. The function names must
     match the names of the functions in the provided plugin. That is, if you have loaded a plugin that provides
@@ -128,6 +128,48 @@ class Process(BaseModel):
 
     ready_params: dict[str, Any] = Field(default_factory=dict)
     """Additional parameters for the ready strategy"""
+
+    _ready_strategy_function: ReadyStrategyType | None = None
+    """The function that implements the ready strategy - set to private so that it will not be serialized"""
+
+    @property
+    def ready_strategy_function(self) -> ReadyStrategyType | None:
+        """Return the ready strategy function for the process."""
+        return self._ready_strategy_function
+
+    @ready_strategy_function.setter
+    def ready_strategy_function(self, strategy: ReadyStrategyType) -> None:
+        """Set the ready strategy function for the process."""
+        self._ready_strategy_function = strategy
+
+    _lifecycle_hook_functions: dict[ProcessHookType, list[LifecycleHookType]] = {
+        "on_restart": [],
+        "on_shutdown": [],
+        "post_start": [],
+        "pre_start": [],
+    }
+
+    @property
+    def lifecycle_hook_functions(self) -> dict[ProcessHookType, list[LifecycleHookType]]:
+        """Return the lifecycle hooks dictionary."""
+        return self._lifecycle_hook_functions
+
+    @lifecycle_hook_functions.setter
+    def lifecycle_hook_functions(self, hooks: dict[ProcessHookType, list[LifecycleHookType]]) -> None:
+        """Set the lifecycle hooks dictionary."""
+        self._lifecycle_hook_functions = hooks
+
+    _stats_handler_functions: list[StatHandlerType] = Field(default_factory=list)
+
+    @property
+    def stats_handler_functions(self) -> list[StatHandlerType]:
+        """Return the stats handler functions."""
+        return self._stats_handler_functions
+
+    @stats_handler_functions.setter
+    def stats_handler_functions(self, handlers: list[StatHandlerType]) -> None:
+        """Set the stats handler functions."""
+        self._stats_handler_functions = handlers
 
     @property
     def command(self) -> list[str]:
@@ -151,17 +193,13 @@ class Process(BaseModel):
             self._runtime_info.cpu_usage_percent = cpu_usage
             self._runtime_info.memory_usage_mb = memory_usage.rss / (1024 * 1024)
 
-    def wait_until_ready(
-        self,
-        ready_strategies: dict[str, Callable[["Process", float], bool]],
-    ) -> bool:
+    def wait_until_ready(self) -> bool:
         """Wait for process to signal readiness."""
         # TODO: Don't think we need to wait for processes that have no dependents
-        if self.ready_strategy not in ready_strategies:
-            error_message = f"Ready strategy not found: {self.ready_strategy}"
-            raise ValueError(error_message)
+        if not self.ready_strategy_function:
+            return True
 
-        return ready_strategies[self.ready_strategy](self, 0.1)
+        return self.ready_strategy_function(self, 0.1)
 
     def get_stats(self) -> ProcessStats:
         """Create a ProcessStats object from current process state."""

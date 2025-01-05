@@ -522,7 +522,7 @@ def test_plugin_registration_order() -> None:  # noqa: C901
     pilot.register_plugins([OrderedPlugin1(), OrderedPlugin2()])
 
     # Execute hooks
-    ProcessPilot._execute_hooks(
+    ProcessPilot.execute_lifecycle_hooks(
         process=manifest.processes[0],
         popen=None,
         hook_type="pre_start",

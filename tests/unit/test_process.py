@@ -247,7 +247,7 @@ def test_process_hooks_execution_order() -> None:
     process.register_hook("pre_start", [hook1, hook2])
 
     # Mock ProcessPilot._execute_hooks to actually call the hooks
-    ProcessPilot._execute_hooks(
+    ProcessPilot.execute_lifecycle_hooks(
         process=process,
         popen=None,
         hook_type="pre_start",
@@ -298,7 +298,7 @@ def test_failing_hook_execution() -> None:
     process.register_hook("pre_start", failing_hook)
 
     with pytest.raises(RuntimeError, match="Hook failed"):
-        ProcessPilot._execute_hooks(
+        ProcessPilot.execute_lifecycle_hooks(
             process=process,
             popen=None,
             hook_type="pre_start",
