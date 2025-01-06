@@ -123,7 +123,7 @@ class Process(BaseModel):
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
     """Runtime information about the process"""
 
-    ready_timeout_sec: float = 30.0
+    ready_timeout_sec: float = 5.0
     """The amount of time to wait for the process to signal readiness before giving up"""
 
     ready_params: dict[str, Any] = Field(default_factory=dict)
