@@ -12,7 +12,7 @@ keywords = ["process", "management", "monitoring"]
 process-graph = "process_pilot.graph:main"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.10,<3.13"
 pydantic = "^2.10.2"
 pyyaml = "^6.0.2"
 psutil = "^6.1.1"
