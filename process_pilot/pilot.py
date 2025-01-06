@@ -369,7 +369,7 @@ class ProcessPilot:
         """Stop all services."""
         if self._thread.is_alive():
             self._shutting_down = True
-            self._thread.join()
+            self._thread.join(5.0)  # TODO: Update this
 
         for process_entry, process in self._running_processes:
             process.terminate()
