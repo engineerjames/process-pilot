@@ -27,8 +27,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install poetry
           poetry install
-          apt update
-          apt install graphviz -y
+          sudo apt update
+          sudo apt install graphviz -y
       - name: Lint with ruff
         run: |
           poetry run ruff check .
