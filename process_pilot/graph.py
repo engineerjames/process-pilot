@@ -59,9 +59,14 @@ def create_dependency_graph(
     output_path = Path(output_dir or ".") / f"process_dependencies.{output_format}"
 
     # Render and save
-    dot.render(output_path.stem, format=output_format, cleanup=True)
+    rendered_file_location = dot.render(
+        filename=output_path.stem,
+        directory=output_path.parent,
+        format=output_format,
+        cleanup=True,
+    )
 
-    return output_path
+    return Path(rendered_file_location).absolute()
 
 
 def load_manifest(manifest_path: Path) -> ProcessManifest:

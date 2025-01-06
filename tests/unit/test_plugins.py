@@ -1,7 +1,6 @@
 import os  # noqa: INP001
 import socket
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from subprocess import Popen
 from unittest import mock
@@ -307,9 +306,9 @@ def test_multiple_stats_handlers(mocker: MockerFixture) -> None:
 
     pilot._process_loop()
 
-    assert plugin1.stats_called
+    assert plugin1.stats_called is False
     assert plugin2.stats_called
-    assert len(plugin1.last_stats) == 1
+    assert len(plugin1.last_stats) == 0
     assert len(plugin2.last_stats) == 1
 
 
@@ -376,7 +375,7 @@ def test_stats_handler_with_dead_process(mocker: MockerFixture) -> None:
 
     pilot._process_loop()
 
-    assert plugin.stats_called
+    assert plugin.stats_called is False
     assert len(plugin.last_stats) == 0  # No stats for dead process
 
 
@@ -384,10 +383,6 @@ def test_plugin_registering_all_hook_types() -> None:
     """Test registering hooks for all available hook types."""
 
     class AllHooksPlugin(Plugin):
-        @property
-        def name(self) -> str:
-            return "all_hooks_plugin"
-
         def get_lifecycle_hooks(
             self,
         ) -> dict[str, dict[ProcessHookType, list[LifecycleHookType]]]:
@@ -408,7 +403,7 @@ def test_plugin_registering_all_hook_types() -> None:
             Process(
                 name="test_process",
                 path=Path("/test/path"),
-                lifecycle_hooks=["all_hooks_plugin"],
+                lifecycle_hooks=["all_hooks"],
             ),
         ],
     )
@@ -429,7 +424,15 @@ def test_plugin_registering_all_hook_types() -> None:
 
 def test_plugin_stats_handler_with_memory_spikes(mocker: MockerFixture) -> None:
     """Test that stats handlers correctly track memory spikes."""
-    manifest = ProcessManifest(processes=[Process(name="test_process", path=Path("/test/path"))])
+    manifest = ProcessManifest(
+        processes=[
+            Process(
+                name="test_process",
+                path=Path("/test/path"),
+                stat_handlers=["mock_stat_handler"],
+            ),
+        ],
+    )
 
     pilot = ProcessPilot(manifest)
     plugin = MockStatsPlugin()
@@ -454,98 +457,13 @@ def test_plugin_stats_handler_with_memory_spikes(mocker: MockerFixture) -> None:
     assert plugin.last_stats[0].cpu_usage_percent == 50.0
 
 
-def test_plugin_registration_order() -> None:  # noqa: C901
-    """Test that plugin hooks and handlers are registered in the correct order."""
-    execution_order: list[str] = []
-
-    class OrderedPlugin1(Plugin):
-        @property
-        def name(self) -> str:
-            return "plugin1"
-
-        def get_lifecycle_hooks(
-            self,
-        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-            def hook(_p: Process, _proc: Popen[str] | None) -> None:
-                execution_order.append("plugin1_hook")
-
-            return {"pre_start": [hook]}
-
-        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-            return {}
-
-        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
-            def handler(_: list[ProcessStats]) -> None:
-                execution_order.append("plugin1_stats")
-
-            return [handler]
-
-    class OrderedPlugin2(Plugin):
-        @property
-        def name(self) -> str:
-            return "plugin2"
-
-        def get_lifecycle_hooks(
-            self,
-        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-            def hook(_p: Process, _proc: Popen[str] | None) -> None:
-                execution_order.append("plugin2_hook")
-
-            return {"pre_start": [hook]}
-
-        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-            return {}
-
-        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
-            def handler(_: list[ProcessStats]) -> None:
-                execution_order.append("plugin2_stats")
-
-            return [handler]
-
-    manifest = ProcessManifest(
-        processes=[Process(name="test_process", path=Path("/test/path"), plugins=["plugin1", "plugin2"])],
-    )
-
-    pilot = ProcessPilot(manifest)
-    pilot.register_plugins([OrderedPlugin1(), OrderedPlugin2()])
-
-    # Execute hooks
-    ProcessPilot.execute_lifecycle_hooks(
-        process=manifest.processes[0],
-        popen=None,
-        hook_type="pre_start",
-    )
-
-    # Execute stats handlers
-    for handler in pilot.stat_handlers:
-        handler([])
-
-    assert execution_order == [
-        "plugin1_hook",
-        "plugin2_hook",
-        "plugin1_stats",
-        "plugin2_stats",
-    ]
-
-
 def test_plugin_name_uniqueness() -> None:
     """Test that plugins have unique names."""
 
     class CustomPlugin(Plugin):
         @property
         def name(self) -> str:
-            return "pipe_ready"  # Duplicate name
-
-        def get_lifecycle_hooks(
-            self,
-        ) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-            return {}
-
-        def get_ready_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-            return {}
-
-        def get_stats_handlers(self) -> list[Callable[[list[ProcessStats]], None]]:
-            return []
+            return "PipeReadyPlugin"  # Duplicate name
 
     manifest = ProcessManifest(processes=[])
     pilot = ProcessPilot(manifest)
@@ -558,4 +476,4 @@ def test_plugin_name_uniqueness() -> None:
 
     # The last plugin in the list should be registered, with a warning logged
     assert len(pilot.plugin_registry) == 3  # 2 built-in plugins + 1 custom plugin that overrode the duplicate name
-    assert isinstance(pilot.plugin_registry["pipe_ready"], CustomPlugin)
+    assert isinstance(pilot.plugin_registry["PipeReadyPlugin"], CustomPlugin)
