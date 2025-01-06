@@ -26,6 +26,7 @@ class Plugin:
         base implementation returns the name of the class.
 
         :returns: The name of the plugin
+
         """
         return self.__class__.__name__
 
@@ -39,8 +40,7 @@ class Plugin:
         hooks are tied to a specific process through the name of the lifecycle hook. The hook name
         must match what is provided in the manifest for it to apply to a given process.
 
-        :returns: A nested dictionary mapping the name of the lifecycle hook to a set of process
-        hook types and their corresponding functions.
+        :returns: A nested dictionary mapping the name of the lifecycle hook to process hook types and their functions.
         """
         return {}
 
@@ -66,7 +66,6 @@ class Plugin:
         tied to a specific process through the name of the handler.  The handler name must match what
         is provided in the manifest for it to apply to a given process.
 
-        :returns: A dictionary mapping the name of the stat handler to a list of functions that handle
-        the processing of the process statistics.
+        :returns: A dictionary mapping the name of the stat handler to a list of stat handler functions
         """
         return {}
