@@ -3,6 +3,7 @@ import logging
 import os
 import pkgutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from time import sleep
@@ -75,13 +76,22 @@ class ProcessPilot:
         """
         plugins_to_register: list[Plugin] = []
 
-        for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
-            module = importlib.import_module(name)
-            for attr in dir(module):
-                cls = getattr(module, attr)
-                if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
-                    plugin = cls()
-                    plugins_to_register.append(plugin)
+        try:
+            sys.path.insert(0, str(plugin_dir))  # Add plugin directory to sys.path
+            for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
+                module = importlib.import_module(name)
+                for attr in dir(module):
+                    cls = getattr(module, attr)
+                    if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
+                        plugin = cls()
+                        plugins_to_register.append(plugin)
+        except Exception:
+            logging.exception("Unexpected error while loading plugin %s", name)
+            raise
+        finally:
+            sys.path.pop(0)  # Remove plugin directory from sys.path
+            for p in plugins_to_register:
+                self.plugin_registry[p.name] = p
 
     def register_plugins(self, plugins: list[Plugin]) -> None:
         """Register plugins and their hooks/strategies."""
@@ -355,9 +365,9 @@ class ProcessPilot:
 
     def stop(self) -> None:
         """Stop all services."""
-        self._shutting_down = True
-
-        self._thread.join()
+        if self._thread.is_alive():
+            self._shutting_down = True
+            self._thread.join()
 
         for process_entry, process in self._running_processes:
             process.terminate()

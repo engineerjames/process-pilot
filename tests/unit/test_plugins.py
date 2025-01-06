@@ -477,3 +477,39 @@ def test_plugin_name_uniqueness() -> None:
     # The last plugin in the list should be registered, with a warning logged
     assert len(pilot.plugin_registry) == 3  # 2 built-in plugins + 1 custom plugin that overrode the duplicate name
     assert isinstance(pilot.plugin_registry["PipeReadyPlugin"], CustomPlugin)
+
+
+def test_plugin_duplicate_registration(mocker: MockerFixture) -> None:
+    """Test registering same plugin twice."""
+
+    class DuplicatePlugin(Plugin):
+        @property
+        def name(self) -> str:
+            return "duplicate"
+
+    manifest = ProcessManifest(processes=[])
+    pilot = ProcessPilot(manifest)
+    plugin = DuplicatePlugin()
+
+    pilot.register_plugins([plugin])
+
+    mock_log = mocker.patch("process_pilot.pilot.logging.warning")
+    pilot.register_plugins([plugin])
+    mock_log.assert_called_once_with("Plugin %s already registered--overwriting", "duplicate")
+
+
+def test_plugin_load_from_directory(tmp_path: Path) -> None:
+    """Test loading plugins from a directory."""
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+
+    plugin_file = plugin_dir / "test_plugin.py"
+    plugin_file.write_text("""
+from process_pilot.plugin import Plugin
+class TestPlugin(Plugin):
+  pass
+    """)
+
+    manifest = ProcessManifest(processes=[])
+    pilot = ProcessPilot(manifest, plugin_directory=plugin_dir)
+    assert "TestPlugin" in pilot.plugin_registry

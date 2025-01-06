@@ -1,4 +1,5 @@
-import subprocess  # noqa: INP001
+import os  # noqa: INP001
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -404,3 +405,66 @@ def test_resolve_argument_paths() -> None:
 
     assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
     assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt", "arg3"]
+
+
+def test_process_pilot_double_start() -> None:
+    """Test starting ProcessPilot when it's already running."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
+    pilot = ProcessPilot(manifest)
+    pilot.start()
+
+    with pytest.raises(RuntimeError, match="ProcessPilot is already running"):
+        pilot.start()
+
+
+def test_process_pilot_stop_not_running() -> None:
+    """Test stopping ProcessPilot when it's not running."""
+    pilot = ProcessPilot(ProcessManifest(processes=[]))
+    pilot.stop()  # Should not raise
+
+
+def test_process_pilot_process_environment_inheritance(mocker: MockerFixture) -> None:
+    """Test that processes inherit environment variables correctly."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"), env={"TEST_VAR": "override"})])
+
+    with mock.patch.dict(os.environ, {"TEST_VAR": "original", "PATH": "/usr/bin"}):
+        pilot = ProcessPilot(manifest)
+        mock_popen = mocker.patch("subprocess.Popen")
+        pilot._initialize_processes()
+
+        env = mock_popen.call_args[1]["env"]
+        assert env["TEST_VAR"] == "override"
+        assert env["PATH"] == "/usr/bin"
+
+
+def test_process_pilot_subprocess_creation_failure(mocker: MockerFixture) -> None:
+    """Test handling of subprocess creation failure."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/nonexistent/path"))])
+    pilot = ProcessPilot(manifest)
+
+    _ = mocker.patch("subprocess.Popen", side_effect=FileNotFoundError("No such file"))
+
+    with pytest.raises(FileNotFoundError, match="No such file"):
+        pilot._initialize_processes()
+
+
+def test_process_pilot_ready_check_timeout(mocker: MockerFixture) -> None:
+    """Test handling of ready check timeout."""
+    manifest = ProcessManifest(
+        processes=[
+            Process(
+                name="test",
+                path=Path("/test/path"),
+                ready_strategy="tcp",
+                ready_params={"port": 8080},
+                ready_timeout_sec=0.1,
+            ),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    mock_popen = mocker.patch("subprocess.Popen")
+    mock_popen.return_value.poll.return_value = None  # Mock the process as running
+
+    with pytest.raises(RuntimeError, match="failed to signal ready"):
+        pilot._initialize_processes()
