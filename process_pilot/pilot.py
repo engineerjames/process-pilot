@@ -38,6 +38,7 @@ class ProcessPilot:
         self._ready_check_interval_secs = ready_check_interval
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
+        self._services_initialized: bool = False
 
         self._thread = threading.Thread(target=self._run)
 
@@ -222,7 +223,8 @@ class ProcessPilot:
                 if entry.wait_until_ready():
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
-                    error_message = f"Process {entry.name} failed to signal ready"
+                    error_message = f"Process {entry.name} failed to signal ready - terminating"
+                    new_popen_result.terminate()
                     raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)

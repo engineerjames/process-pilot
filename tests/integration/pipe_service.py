@@ -1,4 +1,5 @@
-import os  # noqa: INP001
+import logging  # noqa: INP001
+import os
 import select
 import signal
 import sys
@@ -13,27 +14,33 @@ if sys.platform == "win32":
     import win32file
     import win32pipe
 
-    def cleanup_windows(pipe_handle) -> None:  # noqa: ANN001
-        if pipe_handle:
+    def cleanup_windows(pipe_handle: int) -> None:  # noqa: ANN001
+        if pipe_handle != 0:
             win32file.CloseHandle(pipe_handle)
         sys.exit(0)
 
     def start_pipe_service_windows(pipe_name: str) -> None:
-        pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+        pipe_path = f"\\\\.\\pipe{pipe_name}"
 
         try:
-            print(f"Named pipe service creating pipe at {pipe_path}")
+            pipe_handle = 0
+            while pipe_handle == 0:
+                try:
+                    logging.debug("Named pipe service attempting to create pipe at %s", pipe_path)
+                    pipe_handle = win32pipe.CreateNamedPipe(
+                        pipe_path,
+                        win32pipe.PIPE_ACCESS_OUTBOUND,
+                        win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                        1,
+                        65536,
+                        65536,
+                        0,
+                        None,  # type: ignore[arg-type]
+                    )
+                except Exception:
+                    logging.exception("Error creating pipe")
 
-            pipe_handle = win32pipe.CreateNamedPipe(
-                pipe_path,
-                win32pipe.PIPE_ACCESS_OUTBOUND,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                1,
-                65536,
-                65536,
-                0,
-                None,
-            )
+                time.sleep(1.0)
 
             # Set up cleanup on Ctrl+C
             def handle_signal(_: int, _frame: object) -> None:
@@ -46,19 +53,20 @@ if sys.platform == "win32":
                 try:
                     win32pipe.ConnectNamedPipe(pipe_handle, None)
                     win32file.WriteFile(pipe_handle, b"ready\n")
-                    print("Successfully wrote ready signal")
+                    logging.info("Successfully wrote ready signal")
 
                     while True:
                         time.sleep(1)
 
-                except pywintypes.error as e:
-                    print(f"Windows pipe error: {e}")
+                except pywintypes.error:
+                    logging.exception("Windows pipe error")
                     time.sleep(0.1)
 
-        except Exception as e:
-            print(f"Error in pipe service: {e}")
+        except Exception:
+            logging.exception("Error in pipe service")
         finally:
-            cleanup_windows(pipe_handle)
+            if "pipe_handle" in locals() and pipe_handle != 0:
+                cleanup_windows(pipe_handle)
 else:
 
     def cleanup_unix(pipe_path: Path) -> None:
@@ -76,7 +84,7 @@ else:
         signal.signal(signal.SIGTERM, lambda s, f: cleanup_unix(pipe_path))  # noqa: ARG005
 
         try:
-            print(f"Named pipe service creating pipe at {pipe_path}")
+            logging.debug("Named pipe service creating pipe at %s", pipe_path)
 
             while True:
                 try:
@@ -98,13 +106,13 @@ else:
                             while True:
                                 time.sleep(1)
 
-                except OSError as e:
-                    print(f"Waiting for reader: {e}")
+                except OSError:
+                    logging.exception("Waiting for reader")
                     time.sleep(0.1)
                     continue
 
-        except Exception as e:
-            print(f"Error in pipe service: {e}")
+        except Exception:
+            logging.exception("Error in pipe service")
         finally:
             if "fd" in locals():
                 os.close(fd)
@@ -112,8 +120,11 @@ else:
 
 
 if __name__ == "__main__":
+    example_path = str(Path("/tmp/pipe_service_ready"))
     if sys.platform == "win32":
-        start_pipe_service_windows("pipe_service_ready")
+        start_pipe_service_windows(example_path)
     else:
-        pipe_path = Path("/tmp/pipe_service_ready")
+        pipe_path = Path(example_path)
         start_pipe_service(pipe_path)
+
+    print("Exiting pipe service.")

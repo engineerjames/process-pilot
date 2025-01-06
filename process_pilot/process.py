@@ -123,7 +123,7 @@ class Process(BaseModel):
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
     """Runtime information about the process"""
 
-    ready_timeout_sec: float = 10.0
+    ready_timeout_sec: float = 30.0
     """The amount of time to wait for the process to signal readiness before giving up"""
 
     ready_params: dict[str, Any] = Field(default_factory=dict)
@@ -301,6 +301,10 @@ class ProcessManifest(BaseModel):
             if p.ready_strategy in ("file", "pipe") and "path" not in p.ready_params:
                 error_message = f"File and pipe ready strategies require 'path' parameter: {p.name}"
                 raise ValueError(error_message)
+
+            if p.ready_strategy in ("file", "pipe"):
+                # We need to normalize paths to their target OS
+                p.ready_params["path"] = str(Path(p.ready_params["path"]))
 
             if p.ready_strategy == "tcp" and "port" not in p.ready_params:
                 error_message = f"TCP ready strategy requires 'port' parameter: {p.name}"
