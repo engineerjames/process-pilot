@@ -22,6 +22,27 @@ poetry install
 
 You can use the `ProcessPilot` class directly in your Python code to manage processes defined in a YAML or JSON file.
 
+### Process Control
+
+You can restart specific processes by name:
+
+```python
+from process_pilot.pilot import ProcessPilot
+from process_pilot.process import ProcessManifest
+from pathlib import Path
+
+# Load manifest and start ProcessPilot
+manifest = ProcessManifest.from_json(Path("manifest.json"))
+pilot = ProcessPilot(manifest)
+pilot.start()
+
+# Later, restart specific processes
+try:
+    pilot.restart_processes(["api_server", "worker"])
+except ValueError as e:
+    print(f"Error restarting processes: {e}")
+```
+
 ### Example Usage
 
 #### Using a JSON Manifest

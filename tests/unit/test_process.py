@@ -468,3 +468,47 @@ def test_process_pilot_ready_check_timeout(mocker: MockerFixture) -> None:
 
     with pytest.raises(RuntimeError, match="failed to signal ready"):
         pilot._initialize_processes()
+
+
+def test_process_pilot_restart_processes(mocker: MockerFixture) -> None:
+    """Test restarting specific processes."""
+    manifest = ProcessManifest(
+        processes=[
+            Process(name="test1", path=Path("/test/path1")),
+            Process(name="test2", path=Path("/test/path2")),
+        ]
+    )
+
+    pilot = ProcessPilot(manifest)
+
+    # Mock initial processes
+    mock_popen1 = mocker.Mock()
+    mock_popen1.poll.return_value = None
+    mock_popen1.pid = 1234
+
+    mock_popen2 = mocker.Mock()
+    mock_popen2.poll.return_value = None
+    mock_popen2.pid = 5678
+
+    pilot._running_processes = [(manifest.processes[0], mock_popen1), (manifest.processes[1], mock_popen2)]
+
+    # Mock new process creation
+    mock_new_popen = mocker.patch("subprocess.Popen")
+    mock_new_popen.return_value.poll.return_value = None
+
+    # Test restarting one process
+    pilot.restart_processes(["test1"])
+
+    mock_popen1.terminate.assert_called_once()
+    mock_popen1.wait.assert_called_once()
+    assert mock_new_popen.call_count == 1
+
+
+def test_process_pilot_restart_invalid_process() -> None:
+    """Test restarting a non-existent process."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
+
+    pilot = ProcessPilot(manifest)
+
+    with pytest.raises(ValueError, match="Process 'invalid' not found"):
+        pilot.restart_processes(["invalid"])

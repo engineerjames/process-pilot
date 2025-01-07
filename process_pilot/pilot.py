@@ -40,6 +40,7 @@ class ProcessPilot:
         self._shutting_down: bool = False
 
         self._thread = threading.Thread(target=self._run)
+        # self._control_thread = threading.Thread(target=self.)
 
         # Configure the logger
         logging.basicConfig(
@@ -160,6 +161,63 @@ class ProcessPilot:
 
                 handlers_for_process = stat_handlers[handler_name]
                 process.stats_handler_functions.extend(handlers_for_process)
+
+    def restart_processes(self, process_names: list[str] | str) -> None:
+        """
+        Restart specific processes by name.
+
+        :param process_names: List of process name(s) to restart
+
+        :raises ValueError: If any process name is not found
+        """
+        processes_to_restart: dict[str, tuple[Process, subprocess.Popen[str]]] = {}
+
+        # Validate all process names first
+        for name in process_names:
+            found = False
+            for process_entry, popen in self._running_processes:
+                if process_entry.name == name:
+                    processes_to_restart[name] = (process_entry, popen)
+                    found = True
+                    break
+            if not found:
+                msg = f"Process '{name}' not found"
+                raise ValueError(msg)
+
+        # Now restart the processes
+        for name, (process_entry, process) in processes_to_restart.items():
+            logging.info("Restarting process: %s", name)
+
+            # Stop the current process
+            process.terminate()
+            try:
+                process.wait(process_entry.timeout)
+            except subprocess.TimeoutExpired:
+                logging.warning("Process %s did not terminate gracefully - killing", name)
+                process.kill()
+                process.wait()
+
+            # Start new process
+            new_process = subprocess.Popen(  # noqa: S603
+                process_entry.command,
+                encoding="utf-8",
+                env={**os.environ, **process_entry.env},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            # Update running processes list
+            self._running_processes.remove((process_entry, process))
+            self._running_processes.append((process_entry, new_process))
+
+            # Execute restart hooks
+            self.execute_lifecycle_hooks(process=process_entry, popen=new_process, hook_type="on_restart")
+
+            # Wait for readiness if strategy exists
+            if process_entry.ready_strategy and not process_entry.wait_until_ready():
+                error_message = f"Process {name} failed to signal ready after restart"
+                new_process.terminate()
+                raise RuntimeError(error_message)
 
     def _run(self) -> None:
         try:
