@@ -15,7 +15,7 @@ def test_integration() -> None:
 
     pilot.start()
 
-    sleep(10.0)
+    sleep(15.0)
 
     pilot.stop()
 

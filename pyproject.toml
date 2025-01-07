@@ -12,7 +12,7 @@ keywords = ["process", "management", "monitoring"]
 process-graph = "process_pilot.graph:main"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.10,<3.13"
 pydantic = "^2.10.2"
 pyyaml = "^6.0.2"
 psutil = "^6.1.1"
@@ -52,6 +52,14 @@ no_implicit_optional = true  # Don't assume that variables can be None unless ex
 module = "graphviz"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "win32file"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "win32pipe"
+ignore_missing_imports = true
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S101", "D103", "SLF001", "FBT003", "D100", "PLR2004", "S108"]
 
@@ -73,3 +81,7 @@ ignore = [
 select = [
     "ALL", # include all the rules, including new ones
 ]
+
+[tool.pytest.ini_options]
+    log_cli = true 
+    log_cli_level = "INFO" 

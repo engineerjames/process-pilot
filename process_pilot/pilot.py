@@ -3,20 +3,17 @@ import logging
 import os
 import pkgutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING
 
-from process_pilot.plugin import Plugin
+from process_pilot.plugin import LifecycleHookType, Plugin, ReadyStrategyType, StatHandlerType
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
 from process_pilot.process import Process, ProcessManifest, ProcessStats
 from process_pilot.types import ProcessHookType
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 class ProcessPilot:
@@ -41,6 +38,7 @@ class ProcessPilot:
         self._ready_check_interval_secs = ready_check_interval
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
+        self._services_initialized: bool = False
 
         self._thread = threading.Thread(target=self._run)
 
@@ -49,9 +47,6 @@ class ProcessPilot:
             level=logging.DEBUG,
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
-
-        self.ready_strategies: dict[str, Callable[[Process, float], bool]] = {}
-        self.stat_handlers: list[Callable[[list[ProcessStats]], None]] = []
 
         # Load default plugins regardless
         file_ready_plugin = FileReadyPlugin()
@@ -69,7 +64,7 @@ class ProcessPilot:
         if plugin_directory:
             self.load_plugins(plugin_directory)
 
-        logging.debug("Loaded the following plugins: %s", self.plugin_registry.values())
+        logging.debug("Loaded the following plugins: %s", self.plugin_registry.keys())
 
         logging.debug("Registering plugins")
         self.register_plugins(list(self.plugin_registry.values()))
@@ -80,23 +75,31 @@ class ProcessPilot:
 
         :param plugin_dir: The directory to load plugins from
         """
-        for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
-            module = importlib.import_module(name)
-            for attr in dir(module):
-                cls = getattr(module, attr)
-                if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
-                    plugin = cls()
+        plugins_to_register: list[Plugin] = []
 
-                    if plugin.name in self.plugin_registry:
-                        logging.warning(
-                            "Plugin %s already registered--overwriting",
-                            plugin.name,
-                        )
-
-                    self.plugin_registry[plugin.name] = plugin
+        try:
+            sys.path.insert(0, str(plugin_dir))  # Add plugin directory to sys.path
+            for _finder, name, _ispkg in pkgutil.iter_modules([str(plugin_dir)]):
+                module = importlib.import_module(name)
+                for attr in dir(module):
+                    cls = getattr(module, attr)
+                    if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
+                        plugin = cls()
+                        plugins_to_register.append(plugin)
+        except Exception:
+            logging.exception("Unexpected error while loading plugin %s", name)
+            raise
+        finally:
+            sys.path.pop(0)  # Remove plugin directory from sys.path
+            for p in plugins_to_register:
+                self.plugin_registry[p.name] = p
 
     def register_plugins(self, plugins: list[Plugin]) -> None:
         """Register plugins and their hooks/strategies."""
+        hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]] = {}
+        strategies: dict[str, ReadyStrategyType] = {}
+        stat_handlers: dict[str, list[StatHandlerType]] = {}
+
         for plugin in plugins:
             if plugin.name in self.plugin_registry:
                 logging.warning(
@@ -105,23 +108,59 @@ class ProcessPilot:
                 )
             self.plugin_registry[plugin.name] = plugin
 
-            hooks = plugin.register_hooks()
-            strategies = plugin.register_strategies()
-            stat_handlers = plugin.register_stats_handlers()
+            # Process each plugin
+            new_hooks = plugin.get_lifecycle_hooks()
+            new_strategies = plugin.get_ready_strategies()
+            new_stat_handlers = plugin.get_stats_handlers()
 
-            # Register hooks for processes that specify this plugin
-            for process in self._manifest.processes:
-                if plugin.name in process.plugins:
-                    for hook_type, hook_list in hooks.items():
-                        if hook_type not in process.hooks:
-                            process.hooks[hook_type] = []
-                        process.hooks[hook_type].extend(hook_list)
+            hooks.update(new_hooks)
+            strategies.update(new_strategies)
+            stat_handlers.update(new_stat_handlers)
 
-            # Register strategies globally
-            self.ready_strategies.update(strategies)
+        self._associate_plugins_with_processes(hooks, strategies, stat_handlers)
 
-            # Register stat handlers globally
-            self.stat_handlers.extend(stat_handlers)
+    def _associate_plugins_with_processes(
+        self,
+        hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]],
+        strategies: dict[str, ReadyStrategyType],
+        stat_handlers: dict[str, list[StatHandlerType]],
+    ) -> None:
+        for process in self._manifest.processes:
+            # Lifecycle hooks
+            for hook_name in process.lifecycle_hooks:
+                if hook_name not in hooks:
+                    logging.warning(
+                        "Hook %s not found in registry",
+                        hook_name,
+                    )
+                    continue
+
+                hooks_for_process = hooks[hook_name]
+
+                for hook_type, hook_list in hooks_for_process.items():
+                    process.lifecycle_hook_functions[hook_type].extend(hook_list)
+
+            # Ready strategy
+            if process.ready_strategy:
+                if process.ready_strategy not in strategies:
+                    logging.warning(
+                        "Ready strategy %s not found in registry",
+                        process.ready_strategy,
+                    )
+                else:
+                    process.ready_strategy_function = strategies[process.ready_strategy]
+
+            # Statistic Handlers
+            for handler_name in process.stat_handlers:
+                if handler_name not in stat_handlers:
+                    logging.warning(
+                        "Handler %s not found in registry",
+                        handler_name,
+                    )
+                    continue
+
+                handlers_for_process = stat_handlers[handler_name]
+                process.stats_handler_functions.extend(handlers_for_process)
 
     def _run(self) -> None:
         try:
@@ -166,7 +205,7 @@ class ProcessPilot:
             process_env = os.environ.copy()
             process_env.update(entry.env)
 
-            ProcessPilot._execute_hooks(
+            ProcessPilot.execute_lifecycle_hooks(
                 process=entry,
                 popen=None,
                 hook_type="pre_start",
@@ -176,18 +215,21 @@ class ProcessPilot:
                 entry.command,
                 encoding="utf-8",
                 env=process_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
 
             if entry.ready_strategy:
-                if entry.wait_until_ready(self.ready_strategies):
+                if entry.wait_until_ready():
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
-                    error_message = f"Process {entry.name} failed to signal ready"
+                    error_message = f"Process {entry.name} failed to signal ready - terminating"
+                    new_popen_result.terminate()
                     raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)
 
-            ProcessPilot._execute_hooks(
+            ProcessPilot.execute_lifecycle_hooks(
                 process=entry,
                 popen=new_popen_result,
                 hook_type="post_start",
@@ -196,13 +238,18 @@ class ProcessPilot:
             self._running_processes.append((entry, new_popen_result))
 
     @staticmethod
-    def _execute_hooks(process: Process, popen: subprocess.Popen[str] | None, hook_type: ProcessHookType) -> None:
-        if hook_type not in process.hooks or len(process.hooks[hook_type]) == 0:
+    def execute_lifecycle_hooks(
+        process: Process,
+        popen: subprocess.Popen[str] | None,
+        hook_type: ProcessHookType,
+    ) -> None:
+        """Execute the lifecycle hooks for a particular process."""
+        if len(process.lifecycle_hook_functions[hook_type]) == 0:
             logging.warning("No %s hooks available for process: '%s'", hook_type, process.name)
             return
 
         logging.debug("Executing hooks for process: '%s'", process.name)
-        for hook in process.hooks[hook_type]:
+        for hook in process.lifecycle_hook_functions[hook_type]:
             hook(process, popen)
 
     def _process_loop(self) -> None:
@@ -219,7 +266,7 @@ class ProcessPilot:
 
             processes_to_remove.append(process_entry)
 
-            ProcessPilot._execute_hooks(
+            ProcessPilot.execute_lifecycle_hooks(
                 process=process_entry,
                 popen=process,
                 hook_type="on_shutdown",
@@ -255,6 +302,8 @@ class ProcessPilot:
                         process_entry.command,
                         encoding="utf-8",
                         env={**os.environ, **process_entry.env},
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                     )
 
                     processes_to_add.append(
@@ -264,7 +313,7 @@ class ProcessPilot:
                         ),
                     )
 
-                    ProcessPilot._execute_hooks(
+                    ProcessPilot.execute_lifecycle_hooks(
                         process=process_entry,
                         popen=restarted_process,
                         hook_type="on_restart",
@@ -277,19 +326,31 @@ class ProcessPilot:
 
         self._remove_processes(processes_to_remove)
 
+        self._collect_process_stats_and_notify()
+
+        self._running_processes.extend(processes_to_add)
+
+    def _collect_process_stats_and_notify(self) -> None:
         # Collect and process stats
         # TODO: This should likely be moved to a separate method, but also
         #      should be done in a separate thread to avoid blocking the main loop
-        process_stats = [process_entry.get_stats() for process_entry, _ in self._running_processes]
 
-        # Call registered stats handlers
-        for handler in self.stat_handlers:
+        # Group stats by handler to avoid duplicate calls
+        handler_to_stats: dict[StatHandlerType, list[ProcessStats]] = {}
+
+        # Build mapping of handlers to their associated process stats
+        for process_entry, _ in self._running_processes:
+            for handler_func in process_entry.stats_handler_functions:
+                if handler_func not in handler_to_stats:
+                    handler_to_stats[handler_func] = []
+                handler_to_stats[handler_func].append(process_entry.get_stats())
+
+        # Call each handler exactly once with all its associated process stats
+        for handler_func, stats in handler_to_stats.items():
             try:
-                handler(process_stats)
+                handler_func(stats)
             except Exception:
-                logging.exception("Error in stats handler %s", handler)
-
-        self._running_processes.extend(processes_to_add)
+                logging.exception("Error in stats handler %s", handler_func)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:
         for p in processes_to_remove:
@@ -306,9 +367,9 @@ class ProcessPilot:
 
     def stop(self) -> None:
         """Stop all services."""
-        self._shutting_down = True
-
-        self._thread.join()
+        if self._thread.is_alive():
+            self._shutting_down = True
+            self._thread.join(5.0)  # TODO: Update this
 
         for process_entry, process in self._running_processes:
             process.terminate()

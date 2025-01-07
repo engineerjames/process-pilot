@@ -7,34 +7,18 @@ with the child process.
 
 import socket
 import time
-from collections.abc import Callable
-from subprocess import Popen
 from typing import TYPE_CHECKING
 
-from process_pilot.plugin import Plugin
-from process_pilot.types import ProcessHookType
+from process_pilot.plugin import Plugin, ReadyStrategyType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process, ProcessStats
+    from process_pilot.process import Process
 
 
 class TCPReadyPlugin(Plugin):
     """Plugin that provides TCP-based readiness check strategies."""
 
-    @property
-    def name(self) -> str:
-        """Return the name of the plugin."""
-        return "tcp_ready"
-
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-        """
-        Register hooks for the plugin.
-
-        :returns: A dictionary mapping process hook types to their corresponding functions.
-        """
-        return {}
-
-    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def get_ready_strategies(self) -> dict[str, ReadyStrategyType]:
         """
         Register strategies for the plugin.
 
@@ -43,10 +27,6 @@ class TCPReadyPlugin(Plugin):
         return {
             "tcp": self._wait_tcp_ready,
         }
-
-    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
-        """Register handlers for process statistics."""
-        return []
 
     def _wait_tcp_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         port: int | None = process.ready_params.get("port")

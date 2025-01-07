@@ -8,35 +8,19 @@ of 'ready' in a named pipe.
 import os
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
-from subprocess import Popen
 from typing import TYPE_CHECKING
 
-from process_pilot.plugin import Plugin
-from process_pilot.types import ProcessHookType
+from process_pilot.plugin import Plugin, ReadyStrategyType
 
 if TYPE_CHECKING:
-    from process_pilot.process import Process, ProcessStats
+    from process_pilot.process import Process
 
 
 class PipeReadyPlugin(Plugin):
     """Plugin that implements a named pipe (FIFO) based readiness check strategy."""
 
-    @property
-    def name(self) -> str:
-        """Return the name of the plugin."""
-        return "pipe_ready"
-
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str] | None], None]]]:
-        """
-        Register hooks for the plugin.
-
-        :returns: A dictionary mapping process hook types to their corresponding functions.
-        """
-        return {}
-
-    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
+    def get_ready_strategies(self) -> dict[str, ReadyStrategyType]:
         """
         Register strategies for the plugin.
 
@@ -45,10 +29,6 @@ class PipeReadyPlugin(Plugin):
         return {
             "pipe": self._wait_pipe_ready,
         }
-
-    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
-        """Register handlers for process statistics."""
-        return []
 
     def _wait_pipe_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Wait for ready signal via named pipe."""
@@ -64,46 +44,41 @@ class PipeReadyPlugin(Plugin):
                 raise RuntimeError(error_message)
 
             # Only import on Windows
-            import pywintypes
             import win32file
-            import win32pipe
         except ImportError:
             error_message = "win32pipe module required for Windows pipe support"
             raise RuntimeError(error_message) from None
 
-        pipe_name = f"\\\\.\\pipe\\{process.name}_ready"
+        pipe_name = process.ready_params.get("path")
+        pipe_path = f"\\\\.\\pipe{pipe_name}"
         pipe = None
 
-        try:
-            # Create pipe with appropriate security/sharing flags
-            pipe = win32pipe.CreateNamedPipe(
-                pipe_name,
-                win32pipe.PIPE_ACCESS_INBOUND,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                1,
-                65536,
-                65536,
-                0,
-                None,
-            )
+        start_time = time.time()
+        success = False
+        while (time.time() - start_time) < process.ready_timeout_sec:
+            try:
+                # Open the named pipe
+                pipe = win32file.CreateFile(
+                    pipe_path,
+                    win32file.GENERIC_READ,
+                    0,  # no sharing
+                    None,  # default security attributes
+                    win32file.OPEN_EXISTING,
+                    0,  # default attributes
+                    None,  # no template file
+                )
 
-            start_time = time.time()
-            while (time.time() - start_time) < process.ready_timeout_sec:
-                try:
-                    # Wait for client connection
-                    win32pipe.ConnectNamedPipe(pipe, None)
-                    # Read message
-                    result, data = win32file.ReadFile(pipe, 64 * 1024)
-                    if result == 0:
-                        return data.strip() == "ready"
-                except pywintypes.error:
-                    time.sleep(ready_check_interval_secs)
+                result, data = win32file.ReadFile(pipe, 64 * 1024)  # type: ignore[call-overload]
+                if result == 0:
+                    success = data.decode().strip() == "ready"
+                    break
+            except Exception:  # noqa: BLE001 TODO: Fix this
+                time.sleep(ready_check_interval_secs)
 
-            return False
+        if pipe:
+            win32file.CloseHandle(pipe)  # type: ignore[arg-type]
 
-        finally:
-            if pipe:
-                win32file.CloseHandle(pipe)
+        return success
 
     def _wait_pipe_ready_unix(self, process: "Process", ready_check_interval_secs: float) -> bool:
         """Unix-specific FIFO implementation."""

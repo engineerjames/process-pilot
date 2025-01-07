@@ -1,4 +1,5 @@
-import subprocess  # noqa: INP001
+import os  # noqa: INP001
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -85,7 +86,6 @@ def test_process_initialization() -> None:
     assert process.timeout == 10.0
     assert process.shutdown_strategy == "restart"
     assert process.dependencies == ["dep1", "dep2"]
-    assert process.hooks == {}
 
 
 def test_process_command_property() -> None:
@@ -96,23 +96,6 @@ def test_process_command_property() -> None:
     )
 
     assert process.command == ["/mock/path/to/executable", "--arg1", "value1"]
-
-
-def test_process_register_hook() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/mock/path/to/executable"),
-    )
-
-    def mock_hook(process: Process, popen: subprocess.Popen[str] | None) -> None:
-        pass
-
-    process.register_hook("pre_start", mock_hook)
-    assert len(process.hooks["pre_start"]) == 1
-    assert process.hooks["pre_start"][0] == mock_hook
-
-    process.register_hook("pre_start", [mock_hook, mock_hook])
-    assert len(process.hooks["pre_start"]) == 3
 
 
 def test_process_record_process_stats(mocker: MockerFixture) -> None:
@@ -233,29 +216,6 @@ def test_process_runtime_info() -> None:
     assert info.max_cpu_usage == 75.0  # Should update to new max
 
 
-def test_process_hooks_execution_order() -> None:
-    process = Process(name="test_process", path=Path("/test/path"))
-
-    execution_order = []
-
-    def hook1(_: Process, _p: subprocess.Popen[str] | None) -> None:
-        execution_order.append("hook1")
-
-    def hook2(_: Process, _p: subprocess.Popen[str] | None) -> None:
-        execution_order.append("hook2")
-
-    process.register_hook("pre_start", [hook1, hook2])
-
-    # Mock ProcessPilot._execute_hooks to actually call the hooks
-    ProcessPilot._execute_hooks(
-        process=process,
-        popen=None,
-        hook_type="pre_start",
-    )
-
-    assert execution_order == ["hook1", "hook2"]
-
-
 def test_process_manifest_dependency_ordering() -> None:
     manifest_data = {
         "processes": [
@@ -270,39 +230,6 @@ def test_process_manifest_dependency_ordering() -> None:
     # Verify correct ordering
     process_names = [p.name for p in manifest.processes]
     assert process_names == ["process1", "process2", "process3"]
-
-
-def test_register_invalid_hook_type() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-    )
-
-    def mock_hook(_: Process) -> None:
-        pass
-
-    with pytest.raises(ValueError, match="Invalid hook type"):
-        process.register_hook("invalid_hook_type", mock_hook)  # type:ignore[arg-type]
-
-
-def test_failing_hook_execution() -> None:
-    process = Process(
-        name="test_process",
-        path=Path("/test/executable"),
-    )
-
-    def failing_hook(_: Process, _p: subprocess.Popen[str] | None) -> None:
-        error_message = "Hook failed"
-        raise RuntimeError(error_message)
-
-    process.register_hook("pre_start", failing_hook)
-
-    with pytest.raises(RuntimeError, match="Hook failed"):
-        ProcessPilot._execute_hooks(
-            process=process,
-            popen=None,
-            hook_type="pre_start",
-        )
 
 
 def test_process_stats_permission_error(mocker: MockerFixture) -> None:
@@ -410,7 +337,7 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
 
     pilot = ProcessPilot(manifest)
     mock_popen = mocker.patch("subprocess.Popen")
-    mock_execute_hooks = mocker.patch.object(ProcessPilot, "_execute_hooks")
+    mock_execute_hooks = mocker.patch.object(ProcessPilot, "execute_lifecycle_hooks")
 
     pilot._initialize_processes()
 
@@ -418,6 +345,8 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
         ["/test/executable"],
         encoding="utf-8",
         env=mocker.ANY,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     assert mock_execute_hooks.call_args_list[0].kwargs["process"] == manifest.processes[0]
     assert mock_execute_hooks.call_args_list[0].kwargs["hook_type"] == "pre_start"
@@ -476,3 +405,66 @@ def test_resolve_argument_paths() -> None:
 
     assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
     assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt", "arg3"]
+
+
+def test_process_pilot_double_start() -> None:
+    """Test starting ProcessPilot when it's already running."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
+    pilot = ProcessPilot(manifest)
+    pilot.start()
+
+    with pytest.raises(RuntimeError, match="ProcessPilot is already running"):
+        pilot.start()
+
+
+def test_process_pilot_stop_not_running() -> None:
+    """Test stopping ProcessPilot when it's not running."""
+    pilot = ProcessPilot(ProcessManifest(processes=[]))
+    pilot.stop()  # Should not raise
+
+
+def test_process_pilot_process_environment_inheritance(mocker: MockerFixture) -> None:
+    """Test that processes inherit environment variables correctly."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"), env={"TEST_VAR": "override"})])
+
+    with mock.patch.dict(os.environ, {"TEST_VAR": "original", "PATH": "/usr/bin"}):
+        pilot = ProcessPilot(manifest)
+        mock_popen = mocker.patch("subprocess.Popen")
+        pilot._initialize_processes()
+
+        env = mock_popen.call_args[1]["env"]
+        assert env["TEST_VAR"] == "override"
+        assert env["PATH"] == "/usr/bin"
+
+
+def test_process_pilot_subprocess_creation_failure(mocker: MockerFixture) -> None:
+    """Test handling of subprocess creation failure."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/nonexistent/path"))])
+    pilot = ProcessPilot(manifest)
+
+    _ = mocker.patch("subprocess.Popen", side_effect=FileNotFoundError("No such file"))
+
+    with pytest.raises(FileNotFoundError, match="No such file"):
+        pilot._initialize_processes()
+
+
+def test_process_pilot_ready_check_timeout(mocker: MockerFixture) -> None:
+    """Test handling of ready check timeout."""
+    manifest = ProcessManifest(
+        processes=[
+            Process(
+                name="test",
+                path=Path("/test/path"),
+                ready_strategy="tcp",
+                ready_params={"port": 8080},
+                ready_timeout_sec=0.1,
+            ),
+        ],
+    )
+
+    pilot = ProcessPilot(manifest)
+    mock_popen = mocker.patch("subprocess.Popen")
+    mock_popen.return_value.poll.return_value = None  # Mock the process as running
+
+    with pytest.raises(RuntimeError, match="failed to signal ready"):
+        pilot._initialize_processes()
