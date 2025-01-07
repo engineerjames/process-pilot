@@ -476,7 +476,7 @@ def test_process_pilot_restart_processes(mocker: MockerFixture) -> None:
         processes=[
             Process(name="test1", path=Path("/test/path1")),
             Process(name="test2", path=Path("/test/path2")),
-        ]
+        ],
     )
 
     pilot = ProcessPilot(manifest)

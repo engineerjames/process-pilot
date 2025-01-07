@@ -8,7 +8,14 @@ import threading
 from pathlib import Path
 from time import sleep
 
-from process_pilot.plugin import LifecycleHookType, Plugin, ReadyStrategyType, StatHandlerType
+from process_pilot.plugin import (
+    ControlServer,
+    ControlServerType,
+    LifecycleHookType,
+    Plugin,
+    ReadyStrategyType,
+    StatHandlerType,
+)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -34,6 +41,8 @@ class ProcessPilot:
         :param ready_check_interval: The amount of time to wait in-between readiness checks in seconds
         """
         self._manifest = manifest
+        self._control_server: ControlServer | None = None
+        self._control_server_thread: threading.Thread | None = None
         self._process_poll_interval_secs = process_poll_interval
         self._ready_check_interval_secs = ready_check_interval
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
@@ -99,6 +108,7 @@ class ProcessPilot:
         hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]] = {}
         strategies: dict[str, ReadyStrategyType] = {}
         stat_handlers: dict[str, list[StatHandlerType]] = {}
+        control_servers: dict[str, ControlServerType] = {}
 
         for plugin in plugins:
             if plugin.name in self.plugin_registry:
@@ -112,18 +122,21 @@ class ProcessPilot:
             new_hooks = plugin.get_lifecycle_hooks()
             new_strategies = plugin.get_ready_strategies()
             new_stat_handlers = plugin.get_stats_handlers()
+            new_control_servers = plugin.get_control_servers()
 
             hooks.update(new_hooks)
             strategies.update(new_strategies)
             stat_handlers.update(new_stat_handlers)
+            control_servers.update(new_control_servers)
 
-        self._associate_plugins_with_processes(hooks, strategies, stat_handlers)
+        self._associate_plugins_with_processes(hooks, strategies, stat_handlers, control_servers)
 
-    def _associate_plugins_with_processes(
+    def _associate_plugins_with_processes(  # noqa: C901
         self,
         hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]],
         strategies: dict[str, ReadyStrategyType],
         stat_handlers: dict[str, list[StatHandlerType]],
+        control_servers: dict[str, ControlServerType],
     ) -> None:
         for process in self._manifest.processes:
             # Lifecycle hooks
@@ -161,6 +174,13 @@ class ProcessPilot:
 
                 handlers_for_process = stat_handlers[handler_name]
                 process.stats_handler_functions.extend(handlers_for_process)
+
+        if self._manifest.control_server:
+            if self._manifest.control_server not in control_servers:
+                msg = f"Control server {self._manifest.control_server} not found"
+                raise RuntimeError(msg)
+
+            self._control_server = control_servers[self._manifest.control_server](self)
 
     def restart_processes(self, process_names: list[str] | str) -> None:
         """
@@ -243,12 +263,20 @@ class ProcessPilot:
             error_message = "ProcessPilot is already running"
             raise RuntimeError(error_message)
 
+        if self._control_server:
+            if self._control_server_thread:
+                # TODO: What do we do here?
+                pass
+            self._control_server_thread = threading.Thread(target=self._control_server.start)
+
         if len(self._manifest.processes) == 0:
             error_message = "No processes to start"
             raise RuntimeError(error_message)
 
         self._shutting_down = False
         self._thread.start()
+        if self._control_server_thread:
+            self._control_server_thread.start()
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -428,6 +456,11 @@ class ProcessPilot:
             self._shutting_down = True
             self._thread.join(5.0)  # TODO: Update this
 
+        if self._control_server:
+            self._control_server.stop()
+            if self._control_server_thread and self._control_server_thread.is_alive():
+                self._control_server_thread.join(5.0)  # TODO: Update this
+
         for process_entry, process in self._running_processes:
             process.terminate()
 
@@ -439,6 +472,13 @@ class ProcessPilot:
                     process_entry,
                 )
                 process.kill()
+
+
+if __name__ == "__main__":
+    manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "tests" / "examples" / "services.json")
+    pilot = ProcessPilot(manifest)
+
+    pilot.start()
 
 
 if __name__ == "__main__":
