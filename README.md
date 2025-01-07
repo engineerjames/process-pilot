@@ -69,7 +69,7 @@ The process manifest defines the processes to be managed. It can be written in J
 - `name`: The name of the process. This should be unique within the manifest.
 - `path`: The path to the executable or script to be run.
 - `args`: A list of arguments to be passed to the process.
-- `timeout`: The maximum time (in seconds) to wait for the process to start or stop.
+- `timeout`: The maximum time (in seconds) to wait for the process to stop.
 - `shutdown_strategy`: The strategy to use when shutting down the process. Possible values are:
   - `do_not_restart`: Do not restart the process after it stops.
   - `restart`: Restart the process after it stops. This is the default.
@@ -132,63 +132,47 @@ processes:
 
 ## Plugin System
 
-Process Pilot supports a plugin system that allows users to extend its functionality with custom hooks, ready strategies, and process statistics handlers.
+Process Pilot supports a plugin system that allows users to extend its functionality with custom lifecycle hooks, ready strategies, and process statistics handlers. Each created plugin can provide all three of the aforementioned groups, or just one. Each registration function links a name to a function or set of functions. The name provided must match what is in the manifest.
 
 ### Plugin Registration Scoping
 
-Plugins in Process Pilot have two distinct registration scopes:
+Plugins in Process Pilot have one distinct registration scope:
 
-1. **Process-Specific Hooks**: Process hooks (pre_start, post_start, on_shutdown, on_restart) are only registered for processes that explicitly request them in their manifest configuration.
-
-2. **Global Features**: Ready strategies and process stat handlers are registered globally and are available to all processes.
+1. **Process-Specific Hooks**: Process lifecycle hooks, ready strategies, and process statistic handlers are only registered for processes that explicitly request them in their manifest configuration.
 
 ### Creating a Plugin
 
 To create a plugin, define a class that inherits from `Plugin` and implement the required methods:
 
 ```python
-import time
-from collections.abc import Callable
-from pathlib import Path
-from subprocess import Popen
-from typing import TYPE_CHECKING
+# import statements...
 
-from process_pilot.plugin import Plugin
-from process_pilot.types import ProcessHookType
-
-if TYPE_CHECKING:
-    from process_pilot.process import Process, ProcessStats
-
-class ExamplePlugin(Plugin):
-    @property
-    def name(self) -> str:
-        """Return the unique name of the plugin."""
-        return "custom_plugin"
-
-    def register_hooks(self) -> dict[ProcessHookType, list[Callable[["Process", Popen[str]], None]]]:
+class FileReadyPlugin(Plugin):
+    def get_ready_strategies(self) -> dict[str, ReadyStrategyType]:
         return {
-            "pre_start": self.pre_start_hook,
-            "post_start": self.post_start_hook,
+            "file": self._wait_file_ready,
         }
 
-    def register_strategies(self) -> dict[str, Callable[["Process", float], bool]]:
-        return {
-            "custom_strategy": self.custom_ready_strategy,
-        }
+    def _wait_file_ready(self, process: "Process", ready_check_interval_secs: float) -> bool:
+        file_path = process.ready_params.get("path")
 
-    def register_stats_handlers(self) -> list[Callable[[list["ProcessStats"]], None]]:
-        return [self.handle_stats]
+        if not file_path:
+            msg = "Path not specified for file ready strategy"
+            raise RuntimeError(msg)
 
-    def handle_stats(self, stats: list["ProcessStats"]) -> None:
-        for stat in stats:
-            print(f"Process {stat.name} stats:")
-            print(f"  Memory: {stat.memory_usage_mb:.2f}MB")
-            print(f"  CPU: {stat.cpu_usage_percent:.1f}%")
+        file_path = Path(file_path)
+
+        start_time = time.time()
+        while (time.time() - start_time) < process.ready_timeout_sec:
+            if file_path.exists():
+                return True
+            time.sleep(ready_check_interval_secs)
+        return False
 ```
 
-When creating plugins it is important to keep in mind that you should always be checking readiness relative to
+When creating plugins that implement a ready strategy it is important to keep in mind that you should always be checking readiness relative to
 the start time--and always comparing the difference to the timeout value that is specified in the manifest. The
-simplest example of this can be seen in the `FileReadyPlugin`:
+simplest example of this can be seen in the `FileReadyPlugin` shown above:
 
 ```python
 start_time = time.time()
@@ -213,19 +197,21 @@ One way to use plugins with specific processes is to specify them in the manifes
     {
       "name": "example_process",
       "path": "myapp",
-      "plugins": ["custom_plugin"], // Will receive hooks from custom_plugin
-      "ready_strategy": "custom_strategy", // Can use any registered strategy
+      "lifecycle_hooks": ["custom_lifecycle_hooks"],
+      "ready_strategy": "custom_strategy",
       "ready_timeout_sec": 10.0
     },
     {
       "name": "another_process",
-      "path": "otherapp" // No plugin-specific hooks, but can use strategies
+      "path": "otherapp"
     }
   ]
 }
 ```
 
-Another way you can register plugins is directly in Python code:
+In this example, you must have loaded a plugin that provides a lifecycle hook with the name "custom_lifecycle_hooks" and a plugin that implements a ready strategy named "custom_strategy"--they do not have to be in the same plugin, but they could be.
+
+Plugins themselves are registered with process-pilot either in code directly:
 
 ```python
 from pathlib import Path
@@ -243,7 +229,9 @@ pilot.register_plugins([CustomPlugin()])
 pilot.start()
 ```
 
-## Process Lifecycle
+Or, by providing a plugin directory when the ProcessPilot object is constructed. See the API documentation for the ProcessPilot class, and the Plugin class for more details.
+
+## Process Lifecycle Hooks
 
 The following diagram illustrates the process lifecycle and when various hook functions are called:
 
@@ -264,9 +252,32 @@ graph TD
         H -->|shutdown_everything| L[Stop All Processes]
 ```
 
+Ready strategies tie in to this via:
+
+```mermaid
+graph TD
+A[Start Process] --> B[Check Ready Strategy]
+B -->|Strategy 1| C[Execute Strategy 1]
+B -->|Strategy 2| D[Execute Strategy 2]
+B -->|Strategy 3| E[Execute Strategy 3]
+C --> F[Process Ready]
+D --> F[Process Ready]
+E --> F[Process Ready]
+```
+
+Statistic handlers tie into this via:
+
+```mermaid
+graph TD
+        A[Monitor Process] --> B[Collect Statistics]
+        B --> C[Execute Statistic Handlers]
+        C --> D[Update Statistics]
+        D --> A
+```
+
 ## Ready Strategies
 
-Process Pilot supports three different strategies to determine if a process is ready:
+Process Pilot supports three different strategies to determine if a process is ready, but more strategies can be provided via plugins:
 
 1. TCP Port Listening
 2. Named Pipe Signal
