@@ -470,6 +470,14 @@ To run the tests, use:
 poetry run pytest
 ```
 
+### Build the documentation
+
+To build the documentation, run the following from the top level of the repository:
+
+```sh
+poetry run sphinx-build -b html docs docs/_build/html
+```
+
 ### Linting and Formatting
 
 To lint and format the code, use:
