@@ -22,6 +22,10 @@ if sys.platform == "win32":
     def start_pipe_service_windows(pipe_name: str) -> None:
         pipe_path = f"\\\\.\\pipe{pipe_name}"
 
+        if Path(pipe_path).exists():
+            logging.debug("Removing existing pipe at %s", pipe_path)
+            Path(pipe_path).unlink()
+
         try:
             pipe_handle = 0
             while pipe_handle == 0:
@@ -31,7 +35,7 @@ if sys.platform == "win32":
                         pipe_path,
                         win32pipe.PIPE_ACCESS_OUTBOUND,
                         win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                        1,
+                        win32pipe.PIPE_UNLIMITED_INSTANCES,
                         65536,
                         65536,
                         0,

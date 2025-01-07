@@ -91,7 +91,7 @@ class Process(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     """Environment variables to pass to the process. These are merged with the parent process environment."""
 
-    timeout: float | None = None
+    timeout: float | None = 5.0
     """The amount of time to wait for the process to exit before forcibly killing it."""
 
     shutdown_strategy: ShutdownStrategy | None = "restart"

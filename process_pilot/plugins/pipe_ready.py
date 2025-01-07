@@ -55,7 +55,7 @@ class PipeReadyPlugin(Plugin):
 
         start_time = time.time()
         success = False
-        while not success or (time.time() - start_time) < process.ready_timeout_sec:
+        while (time.time() - start_time) < process.ready_timeout_sec:
             try:
                 # Open the named pipe
                 pipe = win32file.CreateFile(
