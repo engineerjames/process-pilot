@@ -38,7 +38,6 @@ class ProcessPilot:
         self._ready_check_interval_secs = ready_check_interval
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
-        self._services_initialized: bool = False
 
         self._thread = threading.Thread(target=self._run)
 
