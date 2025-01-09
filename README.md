@@ -252,6 +252,93 @@ pilot.start()
 
 Or, by providing a plugin directory when the ProcessPilot object is constructed. See the API documentation for the ProcessPilot class, and the Plugin class for more details.
 
+## Control Server Plugins
+
+Control server plugins provide a way to add remote control capabilities to Process Pilot. A control server can be used to monitor and control processes at runtime through various interfaces (HTTP, TCP, Unix socket, etc.).
+
+### Creating a Control Server Plugin
+
+To create a control server plugin:
+
+1. Create a class that implements your control server with at least these methods:
+
+   - `__init__(self, pilot: ProcessPilot)` - Constructor that receives the pilot instance
+   - `start(self)` - Called when Process Pilot starts
+   - `stop(self)` - Called when Process Pilot shuts down
+
+2. Create a plugin class that inherits from `Plugin` and registers your control server:
+
+```python
+from process_pilot.plugin import Plugin, ControlServerType
+from process_pilot.pilot import ProcessPilot
+
+class MyControlServer:
+    def __init__(self, pilot: ProcessPilot):
+        self.pilot = pilot
+
+    def start(self):
+        # Start your control server
+        pass
+
+    def stop(self):
+        # Clean up resources
+        pass
+
+class MyControlServerPlugin(Plugin):
+    def get_control_servers(self) -> dict[str, ControlServerType]:
+        return {"my_server": lambda pilot: MyControlServer(pilot)}
+```
+
+3. Register your plugin and enable it in the manifest:
+
+```python
+pilot = ProcessPilot(manifest)
+pilot.register_plugins([MyControlServerPlugin()])
+```
+
+```yaml
+manifest:
+  control_server: my_server # Enable your control server
+  processes:
+    # ... process definitions ...
+```
+
+### Control Server Lifecycle
+
+The following diagram shows when the control server is started and stopped:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ProcessPilot
+    participant ControlServer
+    participant Processes
+
+    User->>ProcessPilot: Create(manifest)
+    ProcessPilot->>ProcessPilot: Load plugins
+    ProcessPilot->>ControlServer: Create
+
+    User->>ProcessPilot: start()
+    ProcessPilot->>ControlServer: start()
+    ProcessPilot->>Processes: Start processes
+
+    Note over ControlServer,Processes: Control server running...
+
+    User->>ProcessPilot: shutdown()
+    ProcessPilot->>Processes: Stop processes
+    ProcessPilot->>ControlServer: stop()
+    ProcessPilot->>User: Return
+```
+
+### Built-in Control Server Features
+
+The ProcessPilot instance passed to the control server provides methods to:
+
+- Start/stop/restart processes
+- Get process statistics
+- Access the process manifest
+- Query process status
+
 ## Process Lifecycle Hooks
 
 The following diagram illustrates the process lifecycle and when various hook functions are called:
