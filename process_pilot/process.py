@@ -217,6 +217,10 @@ class ProcessManifest(BaseModel):
     """Pydantic model of each process that is being managed."""
 
     processes: list[Process]
+    """List of processes to be managed."""
+
+    control_server: str | None = None
+    """Name of the control server implementation to use - must be provided by a plugin."""
 
     _manifest_path: Path | None = None
 

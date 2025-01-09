@@ -8,7 +8,14 @@ import threading
 from pathlib import Path
 from time import sleep
 
-from process_pilot.plugin import LifecycleHookType, Plugin, ReadyStrategyType, StatHandlerType
+from process_pilot.plugin import (
+    ControlServer,
+    ControlServerType,
+    LifecycleHookType,
+    Plugin,
+    ReadyStrategyType,
+    StatHandlerType,
+)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -34,12 +41,15 @@ class ProcessPilot:
         :param ready_check_interval: The amount of time to wait in-between readiness checks in seconds
         """
         self._manifest = manifest
+        self._control_server: ControlServer | None = None
+        self._control_server_thread: threading.Thread | None = None
         self._process_poll_interval_secs = process_poll_interval
         self._ready_check_interval_secs = ready_check_interval
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
         self._thread = threading.Thread(target=self._run)
+        # self._control_thread = threading.Thread(target=self.)
 
         # Configure the logger
         logging.basicConfig(
@@ -98,6 +108,7 @@ class ProcessPilot:
         hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]] = {}
         strategies: dict[str, ReadyStrategyType] = {}
         stat_handlers: dict[str, list[StatHandlerType]] = {}
+        control_servers: dict[str, ControlServerType] = {}
 
         for plugin in plugins:
             if plugin.name in self.plugin_registry:
@@ -111,18 +122,21 @@ class ProcessPilot:
             new_hooks = plugin.get_lifecycle_hooks()
             new_strategies = plugin.get_ready_strategies()
             new_stat_handlers = plugin.get_stats_handlers()
+            new_control_servers = plugin.get_control_servers()
 
             hooks.update(new_hooks)
             strategies.update(new_strategies)
             stat_handlers.update(new_stat_handlers)
+            control_servers.update(new_control_servers)
 
-        self._associate_plugins_with_processes(hooks, strategies, stat_handlers)
+        self._associate_plugins_with_processes(hooks, strategies, stat_handlers, control_servers)
 
-    def _associate_plugins_with_processes(
+    def _associate_plugins_with_processes(  # noqa: C901
         self,
         hooks: dict[str, dict[ProcessHookType, list[LifecycleHookType]]],
         strategies: dict[str, ReadyStrategyType],
         stat_handlers: dict[str, list[StatHandlerType]],
+        control_servers: dict[str, ControlServerType],
     ) -> None:
         for process in self._manifest.processes:
             # Lifecycle hooks
@@ -161,6 +175,72 @@ class ProcessPilot:
                 handlers_for_process = stat_handlers[handler_name]
                 process.stats_handler_functions.extend(handlers_for_process)
 
+        if self._manifest.control_server:
+            if self._manifest.control_server not in control_servers:
+                logging.warning(
+                    "Control server '%s' specified in the manifest wasn't found.",
+                    self._manifest.control_server,
+                )
+            else:
+                self._control_server = control_servers[self._manifest.control_server](self)
+
+    def restart_processes(self, process_names: list[str] | str) -> None:
+        """
+        Restart specific processes by name.
+
+        :param process_names: List of process name(s) to restart
+
+        :raises ValueError: If any process name is not found
+        """
+        processes_to_restart: dict[str, tuple[Process, subprocess.Popen[str]]] = {}
+
+        # Validate all process names first
+        for name in process_names:
+            found = False
+            for process_entry, popen in self._running_processes:
+                if process_entry.name == name:
+                    processes_to_restart[name] = (process_entry, popen)
+                    found = True
+                    break
+            if not found:
+                msg = f"Process '{name}' not found"
+                raise ValueError(msg)
+
+        # Now restart the processes
+        for name, (process_entry, process) in processes_to_restart.items():
+            logging.info("Restarting process: %s", name)
+
+            # Stop the current process
+            process.terminate()
+            try:
+                process.wait(process_entry.timeout)
+            except subprocess.TimeoutExpired:
+                logging.warning("Process %s did not terminate gracefully - killing", name)
+                process.kill()
+                process.wait()
+
+            # Start new process
+            new_process = subprocess.Popen(  # noqa: S603
+                process_entry.command,
+                encoding="utf-8",
+                env={**os.environ, **process_entry.env},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            # Update running processes list
+            self._running_processes.remove((process_entry, process))
+            self._running_processes.append((process_entry, new_process))
+
+            # Execute restart hooks
+            self.execute_lifecycle_hooks(process=process_entry, popen=new_process, hook_type="on_restart")
+
+            # Wait for readiness if strategy exists
+            if process_entry.ready_strategy and not process_entry.wait_until_ready():
+                error_message = f"Process {name} failed to signal ready after restart"
+                new_process.terminate()
+                raise RuntimeError(error_message)
+
     def _run(self) -> None:
         try:
             self._initialize_processes()
@@ -185,12 +265,24 @@ class ProcessPilot:
             error_message = "ProcessPilot is already running"
             raise RuntimeError(error_message)
 
+        if self._manifest.control_server and not self._control_server:
+            error_message = f"Control server '{self._manifest.control_server}' not found"
+            raise RuntimeError(error_message)
+
+        if self._control_server:
+            if self._control_server_thread:
+                error_message = "Control server thread is already running"
+                raise RuntimeError(error_message)
+            self._control_server_thread = threading.Thread(target=self._control_server.start)
+
         if len(self._manifest.processes) == 0:
             error_message = "No processes to start"
             raise RuntimeError(error_message)
 
         self._shutting_down = False
         self._thread.start()
+        if self._control_server_thread:
+            self._control_server_thread.start()
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -370,6 +462,11 @@ class ProcessPilot:
             self._shutting_down = True
             self._thread.join(5.0)  # TODO: Update this
 
+        if self._control_server:
+            self._control_server.stop()
+            if self._control_server_thread and self._control_server_thread.is_alive():
+                self._control_server_thread.join(5.0)  # TODO: Update this
+
         for process_entry, process in self._running_processes:
             process.terminate()
 
@@ -381,6 +478,13 @@ class ProcessPilot:
                     process_entry,
                 )
                 process.kill()
+
+
+if __name__ == "__main__":
+    manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "tests" / "examples" / "services.json")
+    pilot = ProcessPilot(manifest)
+
+    pilot.start()
 
 
 if __name__ == "__main__":
