@@ -4,10 +4,10 @@ from collections.abc import Callable
 from subprocess import Popen
 from typing import TYPE_CHECKING, Protocol
 
-from process_pilot.pilot import ProcessPilot
 from process_pilot.types import ProcessHookType
 
 if TYPE_CHECKING:
+    from process_pilot.pilot import ProcessPilot
     from process_pilot.process import Process, ProcessStats
 
 LifecycleHookType = Callable[["Process", Popen[str] | None], None]
@@ -27,7 +27,7 @@ class ControlServer(Protocol):
         ...
 
 
-ControlServerType = Callable[[ProcessPilot], ControlServer]
+ControlServerType = Callable[["ProcessPilot"], ControlServer]
 
 
 class Plugin:

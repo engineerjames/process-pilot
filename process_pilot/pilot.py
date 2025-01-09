@@ -177,10 +177,12 @@ class ProcessPilot:
 
         if self._manifest.control_server:
             if self._manifest.control_server not in control_servers:
-                msg = f"Control server {self._manifest.control_server} not found"
-                raise RuntimeError(msg)
-
-            self._control_server = control_servers[self._manifest.control_server](self)
+                logging.warning(
+                    "Control server '%s' specified in the manifest wasn't found.",
+                    self._manifest.control_server,
+                )
+            else:
+                self._control_server = control_servers[self._manifest.control_server](self)
 
     def restart_processes(self, process_names: list[str] | str) -> None:
         """
@@ -263,10 +265,14 @@ class ProcessPilot:
             error_message = "ProcessPilot is already running"
             raise RuntimeError(error_message)
 
+        if self._manifest.control_server and not self._control_server:
+            error_message = f"Control server '{self._manifest.control_server}' not found"
+            raise RuntimeError(error_message)
+
         if self._control_server:
             if self._control_server_thread:
-                # TODO: What do we do here?
-                pass
+                error_message = "Control server thread is already running"
+                raise RuntimeError(error_message)
             self._control_server_thread = threading.Thread(target=self._control_server.start)
 
         if len(self._manifest.processes) == 0:

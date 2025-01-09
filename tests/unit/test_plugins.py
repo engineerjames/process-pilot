@@ -9,7 +9,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from process_pilot.pilot import ProcessPilot
-from process_pilot.plugin import LifecycleHookType, Plugin, StatHandlerType
+from process_pilot.plugin import ControlServerType, LifecycleHookType, Plugin, StatHandlerType
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -513,3 +513,127 @@ class TestPlugin(Plugin):
     manifest = ProcessManifest(processes=[])
     pilot = ProcessPilot(manifest, plugin_directory=plugin_dir)
     assert "TestPlugin" in pilot.plugin_registry
+
+
+class TestControlServer:
+    def __init__(self, pilot: ProcessPilot) -> None:
+        self.pilot = pilot
+        self.started = False
+        self.stopped = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class ControlServerPlugin(Plugin):
+    def get_control_servers(self) -> dict[str, ControlServerType]:
+        return {"test": lambda pilot: TestControlServer(pilot)}
+
+
+def test_control_server_plugin_registration() -> None:
+    """Test registering a plugin with a control server implementation."""
+    manifest = ProcessManifest(processes=[], control_server="test")
+
+    pilot = ProcessPilot(manifest)
+    plugin = ControlServerPlugin()
+    pilot.register_plugins([plugin])
+
+    assert pilot._control_server is not None
+    assert isinstance(pilot._control_server, TestControlServer)
+
+    pilot._control_server.start()
+    assert pilot._control_server.started
+
+    pilot._control_server.stop()
+    assert pilot._control_server.stopped
+
+
+def test_control_server_plugin_invalid_name() -> None:
+    """Test registering a control server with an invalid name."""
+    manifest = ProcessManifest(processes=[], control_server="invalid")
+
+    pilot = ProcessPilot(manifest)
+    plugin = ControlServerPlugin()
+    pilot.register_plugins([plugin])
+    with pytest.raises(RuntimeError, match="Control server 'invalid' not found"):
+        pilot.start()
+
+
+def test_multiple_control_server_plugins() -> None:
+    """Test registering multiple control server plugins."""
+
+    class TestControlServer1:
+        def __init__(self, pilot: ProcessPilot) -> None:
+            self.pilot = pilot
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    class TestControlServer2:
+        def __init__(self, pilot: ProcessPilot) -> None:
+            self.pilot = pilot
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    class ControlPlugin1(Plugin):
+        def get_control_servers(self) -> dict[str, ControlServerType]:
+            return {"test1": lambda pilot: TestControlServer1(pilot)}
+
+    class ControlPlugin2(Plugin):
+        def get_control_servers(self) -> dict[str, ControlServerType]:
+            return {"test2": lambda pilot: TestControlServer2(pilot)}
+
+    manifest = ProcessManifest(processes=[], control_server="test2")
+
+    pilot = ProcessPilot(manifest)
+    pilot.register_plugins([ControlPlugin1(), ControlPlugin2()])
+
+    assert pilot._control_server is not None
+    assert isinstance(pilot._control_server, TestControlServer2)
+
+
+def test_control_server_restart_processes(mocker: MockerFixture) -> None:
+    """Test control server restart_processes functionality."""
+
+    class TestControlServer:
+        def __init__(self, pilot: ProcessPilot) -> None:
+            self.pilot = pilot
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+        def restart_processes(self, process_names: list[str]) -> None:
+            self.pilot.restart_processes(process_names)
+
+    class ControlPlugin(Plugin):
+        def get_control_servers(self) -> dict[str, ControlServerType]:
+            return {"test": lambda pilot: TestControlServer(pilot)}
+
+    manifest = ProcessManifest(
+        processes=[Process(name="test1", path=Path("/test/path1")), Process(name="test2", path=Path("/test/path2"))],
+        control_server="test",
+    )
+
+    pilot = ProcessPilot(manifest)
+    plugin = ControlPlugin()
+    pilot.register_plugins([plugin])
+
+    mock_restart = mocker.patch.object(pilot, "restart_processes")
+
+    assert pilot._control_server is not None
+    pilot.restart_processes(["test1", "test2"])
+
+    mock_restart.assert_called_once_with(["test1", "test2"])
