@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "process-pilot"
-version = "0.2.2"
+version = "0.3.0"
 description = "Process manager for Python"
 authors = ["James Armes <jamesleearmes@gmail.com>"]
 readme = "README.md"
