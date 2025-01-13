@@ -1,12 +1,13 @@
 [tool.poetry]
 name = "process-pilot"
-version = "0.3.1"
+version = "0.3.2"
 description = "Process manager for Python"
 authors = ["James Armes <jamesleearmes@gmail.com>"]
 readme = "README.md"
 documentation = "https://process-pilot.readthedocs.io/"
 repository = "https://github.com/engineerjames/process-pilot"
 keywords = ["process", "management", "monitoring"]
+include = ["process_pilot/py.typed"]
 
 [tool.poetry.scripts]
 process-graph = "process_pilot.graph:main"
