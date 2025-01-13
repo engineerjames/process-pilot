@@ -14,11 +14,11 @@ process-graph = "process_pilot.graph:main"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
-pydantic = "^2.10.2"
+pydantic = "^2.0.0"
 pyyaml = { version = "!=6.0.0,!=5.4.0,!=5.4.1" }
 psutil = "^5.4.0"
 pywin32 = {version = ">=300", platform = "win32"}
-graphviz = "^0.20.3"
+graphviz = ">=0.10"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.1"
