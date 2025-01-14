@@ -12,10 +12,10 @@ Process Pilot is a Python-based tool for managing and monitoring processes defin
 
 ## Installation
 
-To install the dependencies, use [Poetry](https://python-poetry.org/):
+To install the dependencies, use [uv](https://github.com/astral-sh/uv):
 
 ```sh
-poetry install
+uv sync
 ```
 
 ## Usage
@@ -575,7 +575,7 @@ This will create a graph that will show:
 To run the tests, use:
 
 ```sh
-poetry run pytest
+uv run pytest
 ```
 
 ### Build the documentation
@@ -583,7 +583,7 @@ poetry run pytest
 To build the documentation, run the following from the top level of the repository:
 
 ```sh
-poetry run sphinx-build -b html docs docs/_build/html
+uv run sphinx-build -b html docs docs/_build/html
 ```
 
 ### Linting and Formatting
@@ -591,8 +591,8 @@ poetry run sphinx-build -b html docs docs/_build/html
 To lint and format the code, use:
 
 ```sh
-poetry run ruff check .
-poetry run autopep8 --in-place --recursive .
+uv run ruff check .
+uv runautopep8 --in-place --recursive .
 ```
 
 ## License
