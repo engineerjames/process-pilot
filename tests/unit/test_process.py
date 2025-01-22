@@ -1,5 +1,4 @@
 import os  # noqa: INP001
-import platform
 import subprocess
 from pathlib import Path
 from unittest import mock
