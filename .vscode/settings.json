@@ -12,4 +12,5 @@
   "python.analysis.languageServerMode": "full",
   "python.languageServer": "Pylance",
   "pylint.enabled": false,
+  "python.envFile": "${workspaceFolder}/.env"
 }
