@@ -68,7 +68,7 @@ class PipeReadyPlugin(Plugin):
                     None,  # no template file
                 )
 
-                result, data = win32file.ReadFile(pipe, 64 * 1024)  # type: ignore[call-overload]
+                result, data = win32file.ReadFile(pipe, 64 * 1024)  # type: ignore[call-overload, unused-ignore]
                 if result == 0:
                     success = data.decode().strip() == "ready"
                     break
@@ -76,7 +76,7 @@ class PipeReadyPlugin(Plugin):
                 time.sleep(ready_check_interval_secs)
 
         if pipe:
-            win32file.CloseHandle(pipe)  # type: ignore[arg-type]
+            win32file.CloseHandle(pipe)  # type: ignore[arg-type, unused-ignore]
 
         return success
 

@@ -2,11 +2,14 @@ import importlib  # noqa: D100
 import logging
 import os
 import pkgutil
+import platform
 import subprocess
 import sys
 import threading
 from pathlib import Path
 from time import sleep
+
+import psutil
 
 from process_pilot.plugin import (
     ControlServer,
@@ -310,6 +313,8 @@ class ProcessPilot:
                 stderr=subprocess.PIPE,
             )
 
+            self.set_process_affinity(new_popen_result, entry.affinity)
+
             if entry.ready_strategy:
                 if entry.wait_until_ready():
                     logging.debug("Process %s signaled ready", entry.name)
@@ -397,6 +402,8 @@ class ProcessPilot:
                         stderr=subprocess.PIPE,
                     )
 
+                    self.set_process_affinity(restarted_process, process_entry.affinity)
+
                     processes_to_add.append(
                         (
                             process_entry,
@@ -420,6 +427,29 @@ class ProcessPilot:
         self._collect_process_stats_and_notify()
 
         self._running_processes.extend(processes_to_add)
+
+    def set_process_affinity(self, process: subprocess.Popen[str], affinity: list[int] | None) -> None:
+        """
+        Set the CPU affinity for a given process. Not supported in Mac OS X.
+
+        :param process: Process to set the affinity for
+        """
+        # If we're on MAC OS X - Do nothing
+        # OS X does not export interfaces that identify processors or control thread
+        # placement—explicit thread to processor binding is not supported. Instead, the
+        # kernel manages all thread placement. Applications expect that the scheduler will,
+        # under most circumstances, run its threads using a good processor placement with
+        # respect to cache affinity.
+        if platform.system() == "Darwin" or affinity is None:
+            # Intentionally do nothing
+            return
+
+        try:
+            p = psutil.Process(process.pid)
+            p.cpu_affinity(affinity)  # type: ignore[attr-defined]
+            logging.debug("Set process affinity for %s to %s", str(process.pid), str(affinity))
+        except psutil.Error as e:
+            logging.warning("Failed to set process affinity: %s", e)
 
     def _collect_process_stats_and_notify(self) -> None:
         # Collect and process stats
@@ -478,13 +508,6 @@ class ProcessPilot:
                     process_entry,
                 )
                 process.kill()
-
-
-if __name__ == "__main__":
-    manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "tests" / "examples" / "services.json")
-    pilot = ProcessPilot(manifest)
-
-    pilot.start()
 
 
 if __name__ == "__main__":

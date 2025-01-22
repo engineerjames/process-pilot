@@ -120,6 +120,9 @@ class Process(BaseModel):
     ready_strategy: str | None = None
     """Optional strategy to determine if the process is ready"""
 
+    affinity: list[int] | None = None
+    """Optional list of CPU cores that a given process should run on."""
+
     _runtime_info: ProcessRuntimeInfo = ProcessRuntimeInfo()
     """Runtime information about the process"""
 
@@ -312,6 +315,32 @@ class ProcessManifest(BaseModel):
 
             if p.ready_strategy == "tcp" and "port" not in p.ready_params:
                 error_message = f"TCP ready strategy requires 'port' parameter: {p.name}"
+                raise ValueError(error_message)
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_cpu_affinity(self) -> "ProcessManifest":
+        """Validate that the CPU affinities that are set align with core counts."""
+        num_cores = psutil.cpu_count(logical=False)
+
+        if num_cores is None:
+            logging.error("Unable to determine hardware core counts--setting all process affinities to their defaults")
+            for p in self.processes:
+                p.affinity = None
+
+            return self
+
+        for p in self.processes:
+            if p.affinity is None:
+                continue
+
+            if min(p.affinity) < 0:
+                error_message = f"Affinity values must be between 0 and {num_cores - 1}"
+                raise ValueError(error_message)
+
+            if max(p.affinity) >= num_cores:
+                error_message = f"Affinity core {max(p.affinity)} is out of range for process: {p.name}"
                 raise ValueError(error_message)
 
         return self

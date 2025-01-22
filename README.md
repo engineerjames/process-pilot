@@ -9,6 +9,8 @@ Process Pilot is a Python-based tool for managing and monitoring processes defin
 - Monitor process resource usage.
 - Define shutdown strategies for processes.
 - Define ready strategies to determine when launched processes are deemed to be "running".
+- Define control servers that allow you more fine-tuned runtime control of your processes
+- Set process affinities (Mac OS X not supported for this feature)
 
 ## Installation
 
@@ -106,6 +108,7 @@ The process manifest defines the processes to be managed. It can be written in J
   - For `file`, specify the `path` to the file.
 - `dependencies`: A list of other process names that must be started before this process can be started.
 - `env`: A dictionary of environment variables to set for the process.
+- `affinity`: List of processor IDs (0-based) that the process should be restricted to run on. Not supported on macOS.
 
 The following is an example of a JSON manifest:
 
@@ -126,7 +129,8 @@ The following is an example of a JSON manifest:
       "dependencies": ["another_process"],
       "env": {
         "ENV_VAR": "value"
-      }
+      },
+      "processor_affinity": [0, 1] // Run only on first two processors
     }
   ]
 }
@@ -149,6 +153,7 @@ processes:
             - another_process
         env:
             ENV_VAR: value
+        processor_affinity: [0, 1]  # Run only on first two processors
 ```
 
 ## Plugin System

@@ -1,4 +1,5 @@
 import os  # noqa: INP001
+import platform
 import subprocess
 from pathlib import Path
 from unittest import mock
@@ -512,3 +513,59 @@ def test_process_pilot_restart_invalid_process() -> None:
 
     with pytest.raises(ValueError, match="Process 'invalid' not found"):
         pilot.restart_processes(["invalid"])
+
+
+def test_set_process_affinity_linux(mocker: MockerFixture) -> None:
+    """Test setting process affinity."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
+    pilot = ProcessPilot(manifest)
+
+    mock_process = mocker.Mock(spec=subprocess.Popen)
+    mock_process.pid = 1234
+
+    mock_psutil_process = mocker.patch("psutil.Process")
+    mock_psutil_instance = mock_psutil_process.return_value
+
+    mocker.patch("platform.system", return_value="Linux")
+    pilot.set_process_affinity(mock_process, [0, 1])
+
+    mock_psutil_instance.cpu_affinity.assert_called_once_with([0, 1])
+
+
+def test_set_process_affinity_macosx(mocker: MockerFixture) -> None:
+    """Test setting process affinity."""
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
+    pilot = ProcessPilot(manifest)
+
+    mock_process = mocker.Mock(spec=subprocess.Popen)
+    mock_process.pid = 1234
+
+    mock_psutil_process = mocker.patch("psutil.Process")
+    mock_psutil_instance = mock_psutil_process.return_value
+
+    mocker.patch("platform.system", return_value="Darwin")
+    pilot.set_process_affinity(mock_process, [0, 1])
+
+    mock_psutil_instance.cpu_affinity.assert_not_called()
+
+
+def test_validate_cpu_affinity(mocker: MockerFixture) -> None:
+    """Test validating CPU affinity."""
+    mocker.patch("psutil.cpu_count", return_value=4)
+
+    manifest_data = {
+        "processes": [
+            {"name": "process1", "path": "test", "affinity": [0, 1]},
+            {"name": "process2", "path": "test", "affinity": [2, 3]},
+        ],
+    }
+    manifest = ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+    assert manifest.validate_cpu_affinity() == manifest  # type: ignore[operator]
+
+    manifest_data["processes"][0]["affinity"] = [4]  # type: ignore[index]
+    with pytest.raises(ValueError, match="Affinity core 4 is out of range for process: process1"):
+        ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+
+    manifest_data["processes"][0]["affinity"] = [-1]  # type: ignore[index]
+    with pytest.raises(ValueError, match="Affinity values must be between 0 and 3"):
+        ProcessManifest(**manifest_data)  # type: ignore[arg-type]
