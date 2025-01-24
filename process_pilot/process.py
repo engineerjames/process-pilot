@@ -3,7 +3,6 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
-from glob import glob
 from pathlib import Path
 from typing import Any, cast
 

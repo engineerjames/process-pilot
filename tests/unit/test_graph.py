@@ -34,7 +34,7 @@ def sample_manifest(mocker: MockerFixture) -> ProcessManifest:
 
 
 @pytest.fixture
-def temp_manifest(tmp_path: Path, mocker: MockerFixture) -> Path:
+def temp_manifest(tmp_path: Path) -> Path:
     """Create a temporary manifest file."""
     manifest_data = {
         "processes": [
