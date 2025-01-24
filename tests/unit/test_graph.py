@@ -10,8 +10,10 @@ from process_pilot.process import Process, ProcessManifest
 
 
 @pytest.fixture
-def sample_manifest() -> ProcessManifest:
+def sample_manifest(mocker: MockerFixture) -> ProcessManifest:
     """Create a sample manifest for testing."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     return ProcessManifest(
         processes=[
             Process(
@@ -32,7 +34,7 @@ def sample_manifest() -> ProcessManifest:
 
 
 @pytest.fixture
-def temp_manifest(tmp_path: Path) -> Path:
+def temp_manifest(tmp_path: Path, mocker: MockerFixture) -> Path:
     """Create a temporary manifest file."""
     manifest_data = {
         "processes": [
@@ -51,14 +53,16 @@ def temp_manifest(tmp_path: Path) -> Path:
     return manifest_path
 
 
-def test_load_manifest_json(temp_manifest: Path) -> None:
+def test_load_manifest_json(temp_manifest: Path, mocker: MockerFixture) -> None:
     """Test loading a JSON manifest."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = load_manifest(temp_manifest)
     assert len(manifest.processes) == 1
     assert manifest.processes[0].name == "test"
 
 
-def test_load_manifest_yaml(tmp_path: Path) -> None:
+def test_load_manifest_yaml(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test loading a YAML manifest."""
     yaml_path = tmp_path / "manifest.yaml"
     yaml_path.write_text("""
@@ -69,6 +73,8 @@ def test_load_manifest_yaml(tmp_path: Path) -> None:
         ready_params:
           port: 8080
     """)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = load_manifest(yaml_path)
     assert len(manifest.processes) == 1
     assert manifest.processes[0].name == "test"
@@ -96,8 +102,10 @@ def test_create_dependency_graph_detailed(tmp_path: Path, sample_manifest: Proce
     assert output_path.suffix == ".svg"
 
 
-def test_create_dependency_graph_no_ready_strategy(tmp_path: Path) -> None:
+def test_create_dependency_graph_no_ready_strategy(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test creating a graph for process without ready strategy."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -110,8 +118,10 @@ def test_create_dependency_graph_no_ready_strategy(tmp_path: Path) -> None:
     assert output_path.exists()
 
 
-def test_create_dependency_graph_circular_deps() -> None:
+def test_create_dependency_graph_circular_deps(mocker: MockerFixture) -> None:
     """Test handling circular dependencies."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     with pytest.raises(ValueError, match="Circular dependency detected"):
         _ = ProcessManifest(
             processes=[

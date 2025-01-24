@@ -1,6 +1,9 @@
 import json  # noqa: D100
 import logging
+import os
+import shutil
 from dataclasses import dataclass
+from glob import glob
 from pathlib import Path
 from typing import Any, cast
 
@@ -226,6 +229,45 @@ class ProcessManifest(BaseModel):
     """Name of the control server implementation to use - must be provided by a plugin."""
 
     _manifest_path: Path | None = None
+
+    @model_validator(mode="after")
+    def resolve_paths(self) -> "ProcessManifest":
+        """
+        Resolve and validate paths for each process in the manifest.
+
+        :returns: The updated manifest with resolved paths
+        :raises ValueError: If any path is invalid or executable not found
+        """
+        manifest_dir = self._manifest_path.parent if self._manifest_path else Path.cwd()
+
+        for process in self.processes:
+            # Check if the path has no separators and if the executable is on the PATH
+            if os.sep not in str(process.path):
+                executable_path = shutil.which(process.path)
+                if executable_path:
+                    process.path = Path(executable_path)
+                else:
+                    logging.warning("%s not found in PATH.", process.path)
+
+            # Normalize path separators and resolve relative paths
+            if not process.path.is_absolute():
+                process.path = manifest_dir / process.path
+                process.path = process.path.resolve()
+
+            # Handle wildcard matches
+            if "*" in str(process.path):
+                matched_paths = list(process.path.parent.glob(process.path.name))
+                if not matched_paths:
+                    error_message = f"No matches found for wildcard path: {process.path}"
+                    raise ValueError(error_message)
+                process.path = Path(matched_paths[0])
+
+            # Validate that the executable exists
+            if not process.path.exists() or not process.path.is_file():
+                error_message = f"Executable not found: {process.path}"
+                raise ValueError(error_message)
+
+        return self
 
     @model_validator(mode="after")
     def resolve_dependencies(self) -> "ProcessManifest":

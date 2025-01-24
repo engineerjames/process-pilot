@@ -1,6 +1,7 @@
 import os  # noqa: INP001
+import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PosixPath
 from unittest import mock
 
 import psutil
@@ -13,19 +14,27 @@ from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo
 
 def test_can_load_json() -> None:
     manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "examples" / "services.json")
+    sleep_location = shutil.which("sleep")
+
+    if not sleep_location:
+        pytest.fail("'Sleep' not found in path.")
 
     assert len(manifest.processes) == 4
     assert manifest.processes[0].args == ["15"]
-    assert manifest.processes[0].path == Path("sleep")
+    assert manifest.processes[0].path == PosixPath(sleep_location)
     assert manifest.processes[0].timeout == 3.0
 
 
 def test_can_load_yaml() -> None:
     manifest = ProcessManifest.from_yaml(Path(__file__).parent.parent / "examples" / "services.yaml")
+    sleep_location = shutil.which("sleep")
 
+    if not sleep_location:
+        pytest.fail("'Sleep' not found in path.")
     assert len(manifest.processes) == 1
+
     assert manifest.processes[0].args == ["5"]
-    assert manifest.processes[0].path == Path("sleep")
+    assert manifest.processes[0].path == PosixPath(sleep_location)
     assert manifest.processes[0].timeout == 1.0
 
 
@@ -216,7 +225,9 @@ def test_process_runtime_info() -> None:
     assert info.max_cpu_usage == 75.0  # Should update to new max
 
 
-def test_process_manifest_dependency_ordering() -> None:
+def test_process_manifest_dependency_ordering(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_data = {
         "processes": [
             {"name": "process3", "path": "test", "dependencies": ["process2"]},
@@ -249,6 +260,8 @@ def test_process_stats_permission_error(mocker: MockerFixture) -> None:
 
 
 def test_process_environment_variables(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(name="test_env", path=Path("/test/path"), env={"TEST_VAR": "test_value"}),
@@ -270,7 +283,9 @@ def test_process_environment_variables(mocker: MockerFixture) -> None:
     assert "PATH" in called_env
 
 
-def test_process_manifest_validate_ready_config() -> None:
+def test_process_manifest_validate_ready_config(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_data = {
         "processes": [
             {
@@ -296,7 +311,9 @@ def test_process_manifest_validate_ready_config() -> None:
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
 
-def test_process_pilot_initialization() -> None:
+def test_process_pilot_initialization(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(name="test_process", path=Path("/test/executable")),
@@ -312,6 +329,8 @@ def test_process_pilot_initialization() -> None:
 
 
 def test_process_pilot_start(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(name="test_process", path=Path("/test/executable")),
@@ -329,6 +348,8 @@ def test_process_pilot_start(mocker: MockerFixture) -> None:
 
 
 def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(name="test_process", path=Path("/test/executable")),
@@ -355,7 +376,9 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
     assert mock_execute_hooks.call_args_list[1].kwargs["hook_type"] == "post_start"
 
 
-def test_resolve_relative_paths() -> None:
+def test_resolve_relative_paths(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_path = Path("/mock/manifest/dir/manifest.yaml")
     process = Process(
         name="test_process",
@@ -365,11 +388,13 @@ def test_resolve_relative_paths() -> None:
     manifest = ProcessManifest(processes=[process])
     manifest._resolve_paths_relative_to_manifest(manifest_path)
 
-    assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
+    assert process.path == (manifest_path / Path("/mock/manifest/dir/relative/path/to/executable")).resolve()
     assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
 
 
-def test_resolve_absolute_paths() -> None:
+def test_resolve_absolute_paths(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_path = Path("/mock/manifest/dir/manifest.yaml")
     process = Process(
         name="test_process",
@@ -383,7 +408,9 @@ def test_resolve_absolute_paths() -> None:
     assert process.args == ["arg1", "/absolute/path/to/arg2.txt"]
 
 
-def test_resolve_python_path() -> None:
+def test_resolve_python_path(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_path = Path("/mock/manifest/dir/manifest.yaml")
     process = Process(name="test_process", path=Path("python"), args=["arg1", "relative/path/to/arg2.txt"])
     manifest = ProcessManifest(processes=[process])
@@ -393,7 +420,9 @@ def test_resolve_python_path() -> None:
     assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
 
 
-def test_resolve_argument_paths() -> None:
+def test_resolve_argument_paths(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_path = Path("/mock/manifest/dir/manifest.yaml")
     process = Process(
         name="test_process",
@@ -407,8 +436,10 @@ def test_resolve_argument_paths() -> None:
     assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt", "arg3"]
 
 
-def test_process_pilot_double_start() -> None:
+def test_process_pilot_double_start(mocker: MockerFixture) -> None:
     """Test starting ProcessPilot when it's already running."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
     pilot = ProcessPilot(manifest)
     pilot.start()
@@ -425,6 +456,8 @@ def test_process_pilot_stop_not_running() -> None:
 
 def test_process_pilot_process_environment_inheritance(mocker: MockerFixture) -> None:
     """Test that processes inherit environment variables correctly."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"), env={"TEST_VAR": "override"})])
 
     with mock.patch.dict(os.environ, {"TEST_VAR": "original", "PATH": "/usr/bin"}):
@@ -439,6 +472,8 @@ def test_process_pilot_process_environment_inheritance(mocker: MockerFixture) ->
 
 def test_process_pilot_subprocess_creation_failure(mocker: MockerFixture) -> None:
     """Test handling of subprocess creation failure."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/nonexistent/path"))])
     pilot = ProcessPilot(manifest)
 
@@ -450,6 +485,8 @@ def test_process_pilot_subprocess_creation_failure(mocker: MockerFixture) -> Non
 
 def test_process_pilot_ready_check_timeout(mocker: MockerFixture) -> None:
     """Test handling of ready check timeout."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -472,6 +509,8 @@ def test_process_pilot_ready_check_timeout(mocker: MockerFixture) -> None:
 
 def test_process_pilot_restart_processes(mocker: MockerFixture) -> None:
     """Test restarting specific processes."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(name="test1", path=Path("/test/path1")),
@@ -504,8 +543,10 @@ def test_process_pilot_restart_processes(mocker: MockerFixture) -> None:
     assert mock_new_popen.call_count == 1
 
 
-def test_process_pilot_restart_invalid_process() -> None:
+def test_process_pilot_restart_invalid_process(mocker: MockerFixture) -> None:
     """Test restarting a non-existent process."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
 
     pilot = ProcessPilot(manifest)
@@ -516,6 +557,8 @@ def test_process_pilot_restart_invalid_process() -> None:
 
 def test_set_process_affinity_linux(mocker: MockerFixture) -> None:
     """Test setting process affinity."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
     pilot = ProcessPilot(manifest)
 
@@ -533,6 +576,8 @@ def test_set_process_affinity_linux(mocker: MockerFixture) -> None:
 
 def test_set_process_affinity_macosx(mocker: MockerFixture) -> None:
     """Test setting process affinity."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path"))])
     pilot = ProcessPilot(manifest)
 
@@ -568,3 +613,60 @@ def test_validate_cpu_affinity(mocker: MockerFixture) -> None:
     manifest_data["processes"][0]["affinity"] = [-1]  # type: ignore[index]
     with pytest.raises(ValueError, match="Affinity values must be between 0 and 3"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+
+
+def test_resolve_paths_nominal(mocker: MockerFixture) -> None:
+    """Test resolve_paths with valid paths."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
+    assert manifest.processes[0].path == Path("/test/path/executable").resolve()
+
+
+def test_resolve_paths_with_wildcard(mocker: MockerFixture) -> None:
+    """Test resolve_paths with wildcard in path."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.glob", return_value=[Path("/test/path/executable")])
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/*"))])
+    assert manifest.processes[0].path == Path("/test/path/executable").resolve()
+
+
+def test_resolve_paths_no_wildcard_match(mocker: MockerFixture) -> None:
+    """Test resolve_paths with no matches for wildcard."""
+    mocker.patch("pathlib.Path.glob", return_value=[])
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    with pytest.raises(ValueError, match="No matches found for wildcard path: /test/path/*"):
+        _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/*"))])
+
+
+def test_resolve_paths_executable_not_found(mocker: MockerFixture) -> None:
+    """Test resolve_paths with non-existent executable."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=False)
+    with pytest.raises(ValueError, match="Executable not found: /test/path/executable"):
+        _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
+
+
+def test_resolve_paths_executable_found_but_not_a_file(mocker: MockerFixture) -> None:
+    """Test resolve_paths with non-existent executable."""
+    mocker.patch("pathlib.Path.is_file", return_value=False)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    with pytest.raises(ValueError, match="Executable not found: /test/path/executable"):
+        _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
+
+
+def test_resolve_paths_windows_style(mocker: MockerFixture) -> None:
+    """Test resolve_paths with Windows style path separators."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("C:\\test\\path\\executable"))])
+    assert manifest.processes[0].path == Path("C:\\test\\path\\executable").resolve()
+
+
+def test_resolve_paths_unix_style(mocker: MockerFixture) -> None:
+    """Test resolve_paths with Unix style path separators."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
+    assert manifest.processes[0].path == Path("/test/path/executable").resolve()
