@@ -256,6 +256,8 @@ class MockStatsPlugin(Plugin):
 
 
 def test_stats_handler_execution(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -284,6 +286,8 @@ def test_stats_handler_execution(mocker: MockerFixture) -> None:
 
 
 def test_multiple_stats_handlers(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -314,6 +318,8 @@ def test_multiple_stats_handlers(mocker: MockerFixture) -> None:
 
 def test_stats_handler_multiple_processes(mocker: MockerFixture) -> None:
     """Test that stats handlers receive data from multiple processes."""
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -352,6 +358,8 @@ def test_stats_handler_multiple_processes(mocker: MockerFixture) -> None:
 
 def test_stats_handler_with_dead_process(mocker: MockerFixture) -> None:
     """Test that stats handlers handle processes that have died."""
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -379,7 +387,7 @@ def test_stats_handler_with_dead_process(mocker: MockerFixture) -> None:
     assert len(plugin.last_stats) == 0  # No stats for dead process
 
 
-def test_plugin_registering_all_hook_types() -> None:
+def test_plugin_registering_all_hook_types(mocker: MockerFixture) -> None:
     """Test registering hooks for all available hook types."""
 
     class AllHooksPlugin(Plugin):
@@ -398,6 +406,8 @@ def test_plugin_registering_all_hook_types() -> None:
                 },
             }
 
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -424,6 +434,8 @@ def test_plugin_registering_all_hook_types() -> None:
 
 def test_plugin_stats_handler_with_memory_spikes(mocker: MockerFixture) -> None:
     """Test that stats handlers correctly track memory spikes."""
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[
             Process(
@@ -622,6 +634,8 @@ def test_control_server_restart_processes(mocker: MockerFixture) -> None:
         def get_control_servers(self) -> dict[str, ControlServerType]:
             return {"test": lambda pilot: TestControlServer(pilot)}
 
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
     manifest = ProcessManifest(
         processes=[Process(name="test1", path=Path("/test/path1")), Process(name="test2", path=Path("/test/path2"))],
         control_server="test",

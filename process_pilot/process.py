@@ -1,5 +1,7 @@
 import json  # noqa: D100
 import logging
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -228,6 +230,45 @@ class ProcessManifest(BaseModel):
     _manifest_path: Path | None = None
 
     @model_validator(mode="after")
+    def resolve_paths(self) -> "ProcessManifest":
+        """
+        Resolve and validate paths for each process in the manifest.
+
+        :returns: The updated manifest with resolved paths
+        :raises ValueError: If any path is invalid or executable not found
+        """
+        manifest_dir = self._manifest_path.parent if self._manifest_path else Path.cwd()
+
+        for process in self.processes:
+            # Check if the path has no separators and if the executable is on the PATH
+            if os.sep not in str(process.path):
+                executable_path = shutil.which(process.path)
+                if executable_path:
+                    process.path = Path(executable_path)
+                else:
+                    logging.warning("%s not found in PATH.", process.path)
+
+            # Normalize path separators and resolve relative paths
+            if not process.path.is_absolute():
+                process.path = manifest_dir / process.path
+                process.path = process.path.resolve()
+
+            # Handle wildcard matches
+            if "*" in str(process.path):
+                matched_paths = list(process.path.parent.glob(process.path.name))
+                if not matched_paths:
+                    error_message = f"No matches found for wildcard path: {process.path}"
+                    raise ValueError(error_message)
+                process.path = Path(matched_paths[0])
+
+            # Validate that the executable exists
+            if not process.path.exists() or not process.path.is_file():
+                error_message = f"Executable not found: {process.path}"
+                raise ValueError(error_message)
+
+        return self
+
+    @model_validator(mode="after")
     def resolve_dependencies(self) -> "ProcessManifest":
         """
         Resolve dependencies for each process in the manifest.
@@ -345,23 +386,6 @@ class ProcessManifest(BaseModel):
 
         return self
 
-    def _resolve_paths_relative_to_manifest(self, manifest_path: Path) -> None:
-        """Resolve relative paths in the manifest to be relative to the manifest file."""
-        manifest_dir = manifest_path.parent
-
-        for process in self.processes:
-            if not process.path.is_absolute() and str(process.path) not in ("python, sleep"):
-                process.path = manifest_dir / process.path
-
-            # Check and resolve paths in arguments
-            resolved_args = []
-            for arg in process.args:
-                arg_path = Path(arg)
-                if arg_path.suffix and not arg_path.is_absolute():  # Check if the argument has a file extension
-                    arg_path = manifest_dir / arg_path
-                resolved_args.append(str(arg_path) if arg_path.suffix else arg)
-            process.args = resolved_args
-
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
@@ -372,11 +396,7 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             json_data = json.loads(f.read())
 
-        instance = cls(**json_data)
-
-        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
-
-        return instance
+        return cls(**json_data)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
@@ -388,8 +408,4 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
-        instance = cls(**yaml_data)
-
-        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
-
-        return instance
+        return cls(**yaml_data)
