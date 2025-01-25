@@ -1,7 +1,7 @@
 import os  # noqa: INP001
 import shutil
 import subprocess
-from pathlib import Path, PosixPath
+from pathlib import Path
 from unittest import mock
 
 import psutil
@@ -21,7 +21,7 @@ def test_can_load_json() -> None:
 
     assert len(manifest.processes) == 4
     assert manifest.processes[0].args == ["15"]
-    assert manifest.processes[0].path == PosixPath(sleep_location)
+    assert manifest.processes[0].path == Path(sleep_location)
     assert manifest.processes[0].timeout == 3.0
 
 
@@ -34,7 +34,7 @@ def test_can_load_yaml() -> None:
     assert len(manifest.processes) == 1
 
     assert manifest.processes[0].args == ["5"]
-    assert manifest.processes[0].path == PosixPath(sleep_location)
+    assert manifest.processes[0].path == Path(sleep_location)
     assert manifest.processes[0].timeout == 1.0
 
 
