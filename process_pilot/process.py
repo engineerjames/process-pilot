@@ -386,23 +386,6 @@ class ProcessManifest(BaseModel):
 
         return self
 
-    def _resolve_paths_relative_to_manifest(self, manifest_path: Path) -> None:
-        """Resolve relative paths in the manifest to be relative to the manifest file."""
-        manifest_dir = manifest_path.parent
-
-        for process in self.processes:
-            if not process.path.is_absolute() and str(process.path) not in ("python, sleep"):
-                process.path = manifest_dir / process.path
-
-            # Check and resolve paths in arguments
-            resolved_args = []
-            for arg in process.args:
-                arg_path = Path(arg)
-                if arg_path.suffix and not arg_path.is_absolute():  # Check if the argument has a file extension
-                    arg_path = manifest_dir / arg_path
-                resolved_args.append(str(arg_path) if arg_path.suffix else arg)
-            process.args = resolved_args
-
     @classmethod
     def from_json(cls, path: Path) -> "ProcessManifest":
         """
@@ -414,8 +397,6 @@ class ProcessManifest(BaseModel):
             json_data = json.loads(f.read())
 
         instance = cls(**json_data)
-
-        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
 
         return instance
 
@@ -430,7 +411,5 @@ class ProcessManifest(BaseModel):
             yaml_data = yaml.safe_load(f)
 
         instance = cls(**yaml_data)
-
-        instance._resolve_paths_relative_to_manifest(path)  # noqa: SLF001
 
         return instance

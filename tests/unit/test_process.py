@@ -376,66 +376,6 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
     assert mock_execute_hooks.call_args_list[1].kwargs["hook_type"] == "post_start"
 
 
-def test_resolve_relative_paths(mocker: MockerFixture) -> None:
-    mocker.patch("pathlib.Path.is_file", return_value=True)
-    mocker.patch("pathlib.Path.exists", return_value=True)
-    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
-    process = Process(
-        name="test_process",
-        path=Path("relative/path/to/executable"),
-        args=["arg1", "relative/path/to/arg2.txt"],
-    )
-    manifest = ProcessManifest(processes=[process])
-    manifest._resolve_paths_relative_to_manifest(manifest_path)
-
-    assert process.path == (manifest_path / Path("/mock/manifest/dir/relative/path/to/executable")).resolve()
-    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
-
-
-def test_resolve_absolute_paths(mocker: MockerFixture) -> None:
-    mocker.patch("pathlib.Path.is_file", return_value=True)
-    mocker.patch("pathlib.Path.exists", return_value=True)
-    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
-    process = Process(
-        name="test_process",
-        path=Path("/absolute/path/to/executable"),
-        args=["arg1", "/absolute/path/to/arg2.txt"],
-    )
-    manifest = ProcessManifest(processes=[process])
-    manifest._resolve_paths_relative_to_manifest(manifest_path)
-
-    assert process.path == Path("/absolute/path/to/executable")
-    assert process.args == ["arg1", "/absolute/path/to/arg2.txt"]
-
-
-def test_resolve_python_path(mocker: MockerFixture) -> None:
-    mocker.patch("pathlib.Path.is_file", return_value=True)
-    mocker.patch("pathlib.Path.exists", return_value=True)
-    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
-    process = Process(name="test_process", path=Path("python"), args=["arg1", "relative/path/to/arg2.txt"])
-    manifest = ProcessManifest(processes=[process])
-    manifest._resolve_paths_relative_to_manifest(manifest_path)
-
-    assert process.path == Path("python")
-    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt"]
-
-
-def test_resolve_argument_paths(mocker: MockerFixture) -> None:
-    mocker.patch("pathlib.Path.is_file", return_value=True)
-    mocker.patch("pathlib.Path.exists", return_value=True)
-    manifest_path = Path("/mock/manifest/dir/manifest.yaml")
-    process = Process(
-        name="test_process",
-        path=Path("relative/path/to/executable"),
-        args=["arg1", "relative/path/to/arg2.txt", "arg3"],
-    )
-    manifest = ProcessManifest(processes=[process])
-    manifest._resolve_paths_relative_to_manifest(manifest_path)
-
-    assert process.path == Path("/mock/manifest/dir/relative/path/to/executable")
-    assert process.args == ["arg1", "/mock/manifest/dir/relative/path/to/arg2.txt", "arg3"]
-
-
 def test_process_pilot_double_start(mocker: MockerFixture) -> None:
     """Test starting ProcessPilot when it's already running."""
     mocker.patch("pathlib.Path.is_file", return_value=True)
