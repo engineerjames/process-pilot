@@ -396,9 +396,7 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             json_data = json.loads(f.read())
 
-        instance = cls(**json_data)
-
-        return instance
+        return cls(**json_data)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ProcessManifest":
@@ -410,6 +408,4 @@ class ProcessManifest(BaseModel):
         with path.open("r") as f:
             yaml_data = yaml.safe_load(f)
 
-        instance = cls(**yaml_data)
-
-        return instance
+        return cls(**yaml_data)
