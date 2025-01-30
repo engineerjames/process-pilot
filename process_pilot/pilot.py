@@ -12,9 +12,14 @@ from time import sleep
 
 import psutil
 
-from process_pilot.plugin import (ControlServer, ControlServerType,
-                                  LifecycleHookType, Plugin, ReadyStrategyType,
-                                  StatHandlerType)
+from process_pilot.plugin import (
+    ControlServer,
+    ControlServerType,
+    LifecycleHookType,
+    Plugin,
+    ReadyStrategyType,
+    StatHandlerType,
+)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -511,7 +516,7 @@ class ProcessPilot:
 
         try:
             p = psutil.Process(process.pid)
-            p.cpu_affinity(affinity)  # type: ignore[attr-defined]
+            p.cpu_affinity(affinity)  # type: ignore[attr-defined, unused-ignore]
             logging.debug("Set process affinity for %s to %s", str(process.pid), str(affinity))
         except psutil.Error as e:
             logging.warning("Failed to set process affinity: %s", e)
