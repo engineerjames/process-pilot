@@ -368,6 +368,7 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
         env=mocker.ANY,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=Path("/test"),
     )
     assert mock_execute_hooks.call_args_list[0].kwargs["process"] == manifest.processes[0]
     assert mock_execute_hooks.call_args_list[0].kwargs["hook_type"] == "pre_start"
