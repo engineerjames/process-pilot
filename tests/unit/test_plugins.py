@@ -118,10 +118,8 @@ def test_pipe_ready_plugin_unix_missing_path() -> None:
         plugin._wait_pipe_ready_unix(process, 0.1)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows specific test")
 def test_pipe_ready_plugin_windows_success(mocker: MockerFixture) -> None:
-    if sys.platform != "win32":
-        pytest.skip("Windows-specific test")
-
     process = Process(
         name="test_process",
         path=Path("/mock/path/to/executable"),
@@ -130,7 +128,8 @@ def test_pipe_ready_plugin_windows_success(mocker: MockerFixture) -> None:
         ready_timeout_sec=5.0,
     )
 
-    mock_win32pipe = mocker.patch("win32pipe.CreateNamedPipe")
+    mock_win32pipe = mocker.patch("win32file.CreateFile")
+    mock_win32pipe = mocker.patch("win32file.CloseHandle")
     mock_win32file = mocker.patch("win32file.ReadFile", return_value=(0, b"ready"))
 
     plugin = PipeReadyPlugin()

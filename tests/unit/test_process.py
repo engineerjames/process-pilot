@@ -733,6 +733,3 @@ def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
 
     with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
         pilot.restart_processes(["nonexistent"])
-        pilot.restart_processes(["nonexistent"])
-        pilot.restart_processes(["nonexistent"])
-        pilot.restart_processes(["nonexistent"])
