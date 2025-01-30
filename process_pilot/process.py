@@ -245,7 +245,7 @@ class ProcessManifest(BaseModel):
         for process in self.processes:
             # Check if the path has no separators and if the executable is on the PATH
             if os.sep not in str(process.path):
-                executable_path = shutil.which(process.path)
+                executable_path = shutil.which(str(process.path))
                 if executable_path:
                     process.path = Path(executable_path)
                 else:
@@ -262,11 +262,11 @@ class ProcessManifest(BaseModel):
                 if not matched_paths:
                     error_message = f"No matches found for wildcard path: {process.path}"
                     raise ValueError(error_message)
-                process.path = Path(matched_paths[0])
+                process.path = Path(matched_paths[0]).resolve()
 
             # Validate that the executable exists
             if not process.path.exists() or not process.path.is_file():
-                error_message = f"Executable not found: {process.path}"
+                error_message = f"Executable not found: {process.path.resolve()}"
                 raise ValueError(error_message)
 
         return self

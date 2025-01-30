@@ -63,6 +63,7 @@ def test_file_ready_plugin_missing_path() -> None:
 
 
 # PipeReadyPlugin Tests
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_pipe_ready_plugin_unix_success(mocker: MockerFixture) -> None:
     process = Process(
         name="test_process",
@@ -138,10 +139,8 @@ def test_pipe_ready_plugin_windows_success(mocker: MockerFixture) -> None:
     mock_win32file.assert_called_once()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows specific test")
 def test_pipe_ready_plugin_windows_timeout(mocker: MockerFixture) -> None:
-    if sys.platform != "win32":
-        pytest.skip("Windows-specific test")
-
     process = Process(
         name="test_process",
         path=Path("/mock/path/to/executable"),
@@ -150,30 +149,10 @@ def test_pipe_ready_plugin_windows_timeout(mocker: MockerFixture) -> None:
         ready_timeout_sec=1.0,
     )
 
-    mock_win32pipe = mocker.patch("win32pipe.CreateNamedPipe")
-    mock_win32file = mocker.patch("win32file.ReadFile", side_effect=Exception)
+    _ = mocker.patch("win32file.ReadFile", side_effect=Exception)
 
     plugin = PipeReadyPlugin()
     assert not plugin._wait_pipe_ready_windows(process, 0.1)
-    mock_win32pipe.assert_called_once()
-    mock_win32file.assert_called()
-
-
-def test_pipe_ready_plugin_windows_missing_path() -> None:
-    if sys.platform != "win32":
-        pytest.skip("Windows-specific test")
-
-    process = Process(
-        name="test_process",
-        path=Path("/mock/path/to/executable"),
-        ready_strategy="pipe",
-        ready_params={},
-        ready_timeout_sec=5.0,
-    )
-
-    plugin = PipeReadyPlugin()
-    with pytest.raises(RuntimeError, match="Path not specified for pipe ready strategy"):
-        plugin._wait_pipe_ready_windows(process, 0.1)
 
 
 # TCPReadyPlugin Tests

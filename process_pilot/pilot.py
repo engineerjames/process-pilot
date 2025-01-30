@@ -6,19 +6,15 @@ import platform
 import subprocess
 import sys
 import threading
+from copy import deepcopy
 from pathlib import Path
 from time import sleep
 
 import psutil
 
-from process_pilot.plugin import (
-    ControlServer,
-    ControlServerType,
-    LifecycleHookType,
-    Plugin,
-    ReadyStrategyType,
-    StatHandlerType,
-)
+from process_pilot.plugin import (ControlServer, ControlServerType,
+                                  LifecycleHookType, Plugin, ReadyStrategyType,
+                                  StatHandlerType)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
@@ -222,6 +218,8 @@ class ProcessPilot:
                 process.kill()
                 process.wait()
 
+            # TODO: Ensure dependencies are satisfied
+
             # Start new process
             new_process = subprocess.Popen(  # noqa: S603
                 process_entry.command,
@@ -287,6 +285,70 @@ class ProcessPilot:
         self._thread.start()
         if self._control_server_thread:
             self._control_server_thread.start()
+
+    def get_manifest_processes(self) -> list[Process]:
+        """Get all processes specified in the manifest."""
+        return deepcopy(self._manifest.processes)
+
+    def get_running_process(self, process_id: int | str) -> subprocess.Popen[str] | None:
+        """
+        Get a running process by its ID.
+
+        :param process_id: The ID of the process to retrieve (integer PID or string name)
+        """
+        for manifest_details, proc in self._running_processes:
+            if (isinstance(process_id, str) and manifest_details.name == process_id) or (
+                isinstance(process_id, int) and proc.pid == process_id
+            ):
+                return deepcopy(proc)
+        return None
+
+    def get_process_by_name(self, name: str) -> Process | None:
+        """Get a process' manifest details by its name."""
+        for process_entry in self._manifest.processes:
+            if process_entry.name == name:
+                return process_entry
+        return None
+
+    def start_process(self, name: str) -> None:
+        """Start a specific process by its manifest name."""
+        process = self.get_process_by_name(name)
+        if not process:
+            msg = f"Process '{name}' not found"
+            raise ValueError(msg)
+
+        logging.info("Starting process: %s", name)
+        new_popen_result = subprocess.Popen(  # noqa: S603
+            process.command,
+            encoding="utf-8",
+            env={**os.environ, **process.env},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=process.working_directory,
+        )
+        self.set_process_affinity(new_popen_result, process.affinity)
+
+        # TODO: Add a synchronization mechanism surrounding the running processes?
+        self._running_processes.append((process, new_popen_result))
+
+    def stop_process(self, name: str) -> None:
+        """Stop a specific process by its manifest name."""
+        for process_entry, popen in self._running_processes:
+            if process_entry.name == name:
+                logging.info("Stopping process: %s", name)
+                popen.terminate()
+                try:
+                    popen.wait(process_entry.timeout)
+                except subprocess.TimeoutExpired:
+                    logging.warning("Process %s did not terminate gracefully - killing", name)
+                    popen.kill()
+                    popen.wait()
+
+                # TODO: Add a synchronization mechanism surrounding the running processes?
+                self._running_processes.remove((process_entry, popen))
+                return
+        msg = f"Process '{name}' not found"
+        raise ValueError(msg)
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
