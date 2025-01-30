@@ -101,12 +101,7 @@ The process manifest defines the processes to be managed. It can be written in J
   - `tcp`: The process is ready when it starts listening on a specified TCP port.
   - `pipe`: The process is ready when it writes a specific signal to a named pipe.
   - `file`: The process is ready when a specific file is created.
-- `ready_timeout_sec`: The maximum time (in seconds) to wait for the process to be ready.
-- `ready_params`: Additional parameters for the ready strategy. These vary based on the strategy:
-  - For `tcp`, specify the `port` to check.
-  - For `pipe`, specify the `path` to the named pipe.
-  - For `file`, specify the `path` to the file.
-- `dependencies`: A list of other process names that must be started before this process can be started.
+- `working_directory`: The working directory (cwd) to use when starting the process. Defaults to the location of the executable if not provided.
 - `env`: A dictionary of environment variables to set for the process.
 - `affinity`: List of processor IDs (0-based) that the process should be restricted to run on. Not supported on macOS.
 
@@ -126,7 +121,7 @@ The following is an example of a JSON manifest:
       "ready_params": {
         "port": 8080
       },
-      "dependencies": ["another_process"],
+      "working_directory": "/path/to/working/directory",
       "env": {
         "ENV_VAR": "value"
       },
@@ -140,20 +135,19 @@ The following is an example of a YAML manifest:
 
 ```yaml
 processes:
-    - name: example
-        path: sleep
-        args: ["5"]
-        timeout: 1.0
-        shutdown_strategy: do_not_restart
-        ready_strategy: tcp
-        ready_timeout_sec: 10.0
-        ready_params:
-            port: 8080
-        dependencies:
-            - another_process
-        env:
-            ENV_VAR: value
-        processor_affinity: [0, 1]  # Run only on first two processors
+  - name: example
+    path: sleep
+    args: ["5"]
+    timeout: 1.0
+    shutdown_strategy: do_not_restart
+    ready_strategy: tcp
+    ready_timeout_sec: 10.0
+    ready_params:
+      port: 8080
+    working_directory: /path/to/working/directory
+    env:
+      ENV_VAR: value
+    processor_affinity: [0, 1] # Run only on first two processors
 ```
 
 ## Plugin System
@@ -196,9 +190,7 @@ class FileReadyPlugin(Plugin):
         return False
 ```
 
-When creating plugins that implement a ready strategy it is important to keep in mind that you should always be checking readiness relative to
-the start time--and always comparing the difference to the timeout value that is specified in the manifest. The
-simplest example of this can be seen in the `FileReadyPlugin` shown above:
+When creating plugins that implement a ready strategy it is important to keep in mind that you should always be checking readiness relative to the start time--and always comparing the difference to the timeout value that is specified in the manifest. The simplest example of this can be seen in the `FileReadyPlugin` shown above:
 
 ```python
 start_time = time.time()
@@ -211,43 +203,13 @@ while (time.time() - start_time) < process.ready_timeout_sec:
 return False
 ```
 
-Be careful not to use readiness checks that block the threads ability to check for a timeout condition.
+Be careful not to use readiness checks that block the thread's ability to check for a timeout condition.
 
 ### Plugin Registration
 
-One way to use plugins with specific processes is to specify them in the manifest as shown below:
-
-```json
-{
-  "processes": [
-    {
-      "name": "example_process",
-      "path": "myapp",
-      "lifecycle_hooks": ["custom_lifecycle_hooks"],
-      "ready_strategy": "custom_strategy",
-      "ready_timeout_sec": 10.0
-    },
-    {
-      "name": "another_process",
-      "path": "otherapp"
-    }
-  ]
-}
-```
-
-In this example, you must have loaded a plugin that provides a lifecycle hook with the name "custom_lifecycle_hooks" and a plugin that implements a ready strategy named "custom_strategy"--they do not have to be in the same plugin, but they could be.
-
-Plugins themselves are registered with process-pilot either in code directly:
+To register a plugin, you can either provide it when creating the `ProcessPilot` instance or register it later:
 
 ```python
-from pathlib import Path
-from process_pilot.process import ProcessPilot, ProcessManifest
-from custom_plugin import CustomPlugin
-
-# Load manifest
-manifest = ProcessManifest.from_json(Path("manifest.json"))
-
-# Create pilot and register plugins
 pilot = ProcessPilot(manifest)
 pilot.register_plugins([CustomPlugin()])
 
@@ -530,48 +492,9 @@ process-graph manifest.json --format png --output-dir ./graphs
 
 ### Example
 
-Given this manifest:
-
-```json
-{
-  "processes": [
-    {
-      "name": "database",
-      "path": "postgresql",
-      "ready_strategy": "tcp",
-      "ready_params": {
-        "port": 5432
-      }
-    },
-    {
-      "name": "api",
-      "path": "api_server",
-      "dependencies": ["database"],
-      "ready_strategy": "file",
-      "ready_params": {
-        "path": "/tmp/api_ready"
-      }
-    },
-    {
-      "name": "worker",
-      "path": "worker_service",
-      "dependencies": ["api", "database"]
-    }
-  ]
-}
-```
-
-You could generate the graph via:
-
 ```sh
-process-graph manifest.json --format svg
+process-graph manifest.json --format svg --output-dir ./graphs --detailed
 ```
-
-This will create a graph that will show:
-
-- `database` node (light blue) with no dependencies
-- `api` node (light green) depending on `database`
-- `worker` node (white) depending
 
 ## Development
 
@@ -597,7 +520,7 @@ To lint and format the code, use:
 
 ```sh
 uv run ruff check .
-uv runautopep8 --in-place --recursive .
+uv run autopep8 --in-place --recursive .
 ```
 
 ## License
