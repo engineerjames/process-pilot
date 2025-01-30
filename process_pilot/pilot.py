@@ -229,6 +229,7 @@ class ProcessPilot:
                 env={**os.environ, **process_entry.env},
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                cwd=process_entry.working_directory,
             )
 
             # Update running processes list
@@ -311,6 +312,7 @@ class ProcessPilot:
                 env=process_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                cwd=entry.working_directory,
             )
 
             self.set_process_affinity(new_popen_result, entry.affinity)
@@ -385,7 +387,7 @@ class ProcessPilot:
                 case "restart":
                     logging.warning(
                         "%s shutdown with return code %i.  Restarting...",
-                        process_entry,
+                        process_entry.name,
                         process.returncode,
                     )
 
@@ -400,6 +402,7 @@ class ProcessPilot:
                         env={**os.environ, **process_entry.env},
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        cwd=process_entry.working_directory,
                     )
 
                     self.set_process_affinity(restarted_process, process_entry.affinity)

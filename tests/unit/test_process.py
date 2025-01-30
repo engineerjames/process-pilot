@@ -368,6 +368,7 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
         env=mocker.ANY,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=Path("/test"),
     )
     assert mock_execute_hooks.call_args_list[0].kwargs["process"] == manifest.processes[0]
     assert mock_execute_hooks.call_args_list[0].kwargs["hook_type"] == "pre_start"
@@ -610,3 +611,44 @@ def test_resolve_paths_unix_style(mocker: MockerFixture) -> None:
     mocker.patch("pathlib.Path.exists", return_value=True)
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
     assert manifest.processes[0].path == Path("/test/path/executable").resolve()
+
+
+def test_set_working_directory_default(mocker: MockerFixture) -> None:
+    """Test setting the working directory to the executable's parent directory if not provided."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    manifest_data = {
+        "processes": [
+            {"name": "process1", "path": "test/executable"},
+        ],
+    }
+    manifest = ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+    assert manifest.processes[0].working_directory == Path("test").resolve()
+
+
+def test_set_working_directory_provided(mocker: MockerFixture) -> None:
+    """Test setting the working directory if provided."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_dir", return_value=True)
+    manifest_data = {
+        "processes": [
+            {"name": "process1", "path": "test/executable", "working_directory": "custom/dir"},
+        ],
+    }
+    manifest = ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+    assert manifest.processes[0].working_directory == Path("custom/dir")
+
+
+def test_set_working_directory_invalid(mocker: MockerFixture) -> None:
+    """Test raising an error if the provided working directory does not exist."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_dir", return_value=False)
+    manifest_data = {
+        "processes": [
+            {"name": "process1", "path": "test/executable", "working_directory": "invalid/dir"},
+        ],
+    }
+    with pytest.raises(ValueError, match="Working directory does not exist: invalid/dir"):
+        ProcessManifest(**manifest_data)  # type: ignore[arg-type]
