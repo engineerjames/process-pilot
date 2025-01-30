@@ -84,6 +84,9 @@ class Process(BaseModel):
     name: str
     """The name of the process."""
 
+    working_directory: Path | None = None
+    """The working directory (cwd) to use when starting the process. Defaults to the location of the executable."""
+
     path: Path
     """The path to the executable that will be run."""
 
@@ -383,6 +386,20 @@ class ProcessManifest(BaseModel):
             if max(p.affinity) >= num_cores:
                 error_message = f"Affinity core {max(p.affinity)} is out of range for process: {p.name}"
                 raise ValueError(error_message)
+
+        return self
+
+    @model_validator(mode="after")
+    def set_working_directory(self) -> "ProcessManifest":
+        """Set the working directory for each process. Defaults to the executable's parent directory."""
+        for p in self.processes:
+            if p.working_directory is None:
+                p.working_directory = p.path.parent
+            else:
+                p.working_directory = Path(p.working_directory)
+                if not p.working_directory.is_dir():
+                    error_message = f"Working directory does not exist: {p.working_directory}"
+                    raise ValueError(error_message)
 
         return self
 
