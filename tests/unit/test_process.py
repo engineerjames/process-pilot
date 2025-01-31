@@ -10,7 +10,9 @@ import pytest
 from pytest_mock import MockerFixture
 
 from process_pilot.pilot import ProcessPilot
-from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo
+from process_pilot.process import (Process, ProcessManifest,
+                                   ProcessRuntimeInfo, ProcessState,
+                                   ProcessStatus)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
@@ -679,16 +681,17 @@ def test_get_manifest_processes(pilot: ProcessPilot) -> None:
 def test_get_running_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
     mock_popen = mocker.Mock(spec=subprocess.Popen)
     mock_popen.pid = 1234
+    pilot._manifest.processes[0]._pid = 1234
     pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
 
     process = pilot.get_running_process(1234)
     assert process is not None
-    assert isinstance(process, subprocess.Popen)
+    assert isinstance(process, ProcessStatus)
     assert process.pid == 1234
 
     process = pilot.get_running_process("test_process")
     assert process is not None
-    assert isinstance(process, subprocess.Popen)
+    assert isinstance(process, ProcessStatus)
     assert process.pid == 1234
 
     process = pilot.get_running_process("nonexistent")
@@ -715,6 +718,8 @@ def test_start_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
 
 def test_stop_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
     mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.pid = 1234
+    mock_popen.returncode = 0
     pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
 
     pilot.stop_process("test_process")
@@ -726,6 +731,8 @@ def test_stop_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
 
 def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
     mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.pid = 1234
+    mock_popen.returncode = 0
     pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
 
     mock_new_popen = mocker.patch("subprocess.Popen")
@@ -735,3 +742,49 @@ def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
 
     with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
         pilot.restart_processes(["nonexistent"])
+        
+def test_update_status_basic() -> None:
+    """Test basic status update."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING)
+    assert process._status == ProcessState.RUNNING
+
+def test_update_status_stopped_resets_pid() -> None:
+    """Test that STOPPED state resets PID to 0."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._pid = 1234
+    process.update_status(ProcessState.STOPPED)
+    assert process._pid == 0
+
+def test_update_status_running_resets_return_code() -> None:
+    """Test that RUNNING state resets return code to -1."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._return_code = 0
+    process.update_status(ProcessState.RUNNING)
+    assert process._return_code == -1
+
+def test_update_status_pid_when_zero() -> None:
+    """Test setting PID when current PID is 0."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING, pid=1234)
+    assert process._pid == 1234
+
+def test_update_status_pid_when_set() -> None:
+    """Test that PID is not updated when already set."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._pid = 1234
+    process.update_status(ProcessState.RUNNING, pid=5678)
+    assert process._pid == 1234
+
+def test_update_status_with_return_code() -> None:
+    """Test setting return code."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.STOPPED, return_code=1)
+    assert process._return_code == 1
+
+def test_update_status_with_pid_and_return_code() -> None:
+    """Test setting both PID and return code."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING, pid=1234, return_code=0)
+    assert process._pid == 1234
+    assert process._return_code == 0
