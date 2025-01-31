@@ -1,6 +1,6 @@
 [project]
 name = "process-pilot"
-version = "0.4.0"
+version = "0.4.1"
 description = "Process manager for Python"
 authors = [{ name = "James Armes", email = "jamesleearmes@gmail.com" }]
 requires-python = ">=3.10,<3.13"
