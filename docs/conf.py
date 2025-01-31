@@ -12,7 +12,7 @@ from pathlib import Path
 project = "process-pilot"
 copyright = "2024, James Armes"  # noqa: A001
 author = "James Armes"
-release = "0.3.9"
+release = "0.4.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
