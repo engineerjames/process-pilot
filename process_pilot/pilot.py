@@ -10,7 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 from threading import Lock
 from time import sleep
-from typing import overload
+from typing import cast, overload
 
 import psutil
 
@@ -233,7 +233,19 @@ class ProcessPilot:
                 return_code=process.returncode,
             )
 
-            # TODO: Ensure dependencies are satisfied
+            # Ensure dependencies are satisfied
+            for dep in process_entry.dependencies:
+                dep = cast(Process, dep)
+                dep_proc = self.get_process_by_name(dep.name)
+
+                if not dep_proc:
+                    logging.warning("Dependency %s not found for process %s", dep.name, name)
+                    continue
+                
+                if dep_proc.get_status().status != ProcessState.RUNNING:
+                    logging.warning("Dependency %s not satisfied for process %s", dep.name, name)
+                    self.start_process(dep.name)
+                    continue
 
             # Start new process
             new_process = subprocess.Popen(  # noqa: S603
