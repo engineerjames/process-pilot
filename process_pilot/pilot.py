@@ -23,7 +23,7 @@ from process_pilot.plugin import (
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
-from process_pilot.process import Process, ProcessManifest, ProcessStats
+from process_pilot.process import Process, ProcessManifest, ProcessState, ProcessStats, ProcessStatus
 from process_pilot.types import ProcessHookType
 
 
@@ -214,6 +214,12 @@ class ProcessPilot:
         for name, (process_entry, process) in processes_to_restart.items():
             logging.info("Restarting process: %s", name)
 
+            process_entry.update_status(
+                status=ProcessState.STOPPING,
+                pid=process.pid,
+                return_code=None,
+            )
+
             # Stop the current process
             process.terminate()
             try:
@@ -222,6 +228,11 @@ class ProcessPilot:
                 logging.warning("Process %s did not terminate gracefully - killing", name)
                 process.kill()
                 process.wait()
+
+            process_entry.update_status(
+                status=ProcessState.STOPPED,
+                return_code=process.returncode,
+            )
 
             # TODO: Ensure dependencies are satisfied
 
@@ -247,6 +258,13 @@ class ProcessPilot:
                 error_message = f"Process {name} failed to signal ready after restart"
                 new_process.terminate()
                 raise RuntimeError(error_message)
+
+            # Update process properties
+            process_entry.update_status(
+                status=ProcessState.RUNNING,
+                pid=process.pid,
+                return_code=None,
+            )
 
     def _run(self) -> None:
         try:
@@ -295,17 +313,25 @@ class ProcessPilot:
         """Get all processes specified in the manifest."""
         return deepcopy(self._manifest.processes)
 
-    def get_running_process(self, process_id: int | str) -> subprocess.Popen[str] | None:
+    def get_running_process(
+        self,
+        process_id: int | str | None,
+    ) -> list[ProcessStatus] | ProcessStatus | None:
         """
         Get a running process by its ID.
 
-        :param process_id: The ID of the process to retrieve (integer PID or string name)
+        :param process_id: The ID of the process to retrieve (integer PID or string name).
+                           If None, return all processes.
         """
+        if not process_id:
+            return [deepcopy(proc.get_status()) for proc, _ in self._running_processes]
+
         for manifest_details, proc in self._running_processes:
             if (isinstance(process_id, str) and manifest_details.name == process_id) or (
                 isinstance(process_id, int) and proc.pid == process_id
             ):
-                return deepcopy(proc)
+                return deepcopy(manifest_details.get_status())
+
         return None
 
     def get_process_by_name(self, name: str) -> Process | None:
@@ -322,6 +348,11 @@ class ProcessPilot:
             msg = f"Process '{name}' not found"
             raise ValueError(msg)
 
+        process.update_status(
+            status=ProcessState.STARTING,
+            return_code=None,
+        )
+
         logging.info("Starting process: %s", name)
         new_popen_result = subprocess.Popen(  # noqa: S603
             process.command,
@@ -333,6 +364,12 @@ class ProcessPilot:
         )
         self.set_process_affinity(new_popen_result, process.affinity)
 
+        process.update_status(
+            status=ProcessState.RUNNING,
+            pid=new_popen_result.pid,
+            return_code=None,
+        )
+
         # TODO: Add a synchronization mechanism surrounding the running processes?
         self._running_processes.append((process, new_popen_result))
 
@@ -341,6 +378,11 @@ class ProcessPilot:
         for process_entry, popen in self._running_processes:
             if process_entry.name == name:
                 logging.info("Stopping process: %s", name)
+                process_entry.update_status(
+                    status=ProcessState.STOPPING,
+                    pid=popen.pid,
+                    return_code=None,
+                )
                 popen.terminate()
                 try:
                     popen.wait(process_entry.timeout)
@@ -348,6 +390,11 @@ class ProcessPilot:
                     logging.warning("Process %s did not terminate gracefully - killing", name)
                     popen.kill()
                     popen.wait()
+
+                process_entry.update_status(
+                    status=ProcessState.STOPPED,
+                    return_code=popen.returncode,
+                )
 
                 # TODO: Add a synchronization mechanism surrounding the running processes?
                 self._running_processes.remove((process_entry, popen))
@@ -367,6 +414,10 @@ class ProcessPilot:
             process_env = os.environ.copy()
             process_env.update(entry.env)
 
+            entry.update_status(
+                status=ProcessState.STARTING,
+            )
+
             ProcessPilot.execute_lifecycle_hooks(
                 process=entry,
                 popen=None,
@@ -383,6 +434,11 @@ class ProcessPilot:
             )
 
             self.set_process_affinity(new_popen_result, entry.affinity)
+
+            entry.update_status(
+                status=ProcessState.RUNNING,
+                pid=new_popen_result.pid,
+            )
 
             if entry.ready_strategy:
                 if entry.wait_until_ready():
@@ -431,6 +487,11 @@ class ProcessPilot:
 
             processes_to_remove.append(process_entry)
 
+            process_entry.update_status(
+                status=ProcessState.STOPPED,
+                return_code=process.returncode,
+            )
+
             ProcessPilot.execute_lifecycle_hooks(
                 process=process_entry,
                 popen=process,
@@ -458,6 +519,11 @@ class ProcessPilot:
                         process.returncode,
                     )
 
+                    process_entry.update_status(
+                        status=ProcessState.STARTING,
+                        return_code=process.returncode,
+                    )
+
                     logging.debug(
                         "Running command %s",
                         process_entry.command,
@@ -473,6 +539,11 @@ class ProcessPilot:
                     )
 
                     self.set_process_affinity(restarted_process, process_entry.affinity)
+
+                    process_entry.update_status(
+                        status=ProcessState.RUNNING,
+                        pid=restarted_process.pid,
+                    )
 
                     processes_to_add.append(
                         (
@@ -568,6 +639,10 @@ class ProcessPilot:
                 self._control_server_thread.join(5.0)  # TODO: Update this
 
         for process_entry, process in self._running_processes:
+            process_entry.update_status(
+                status=ProcessState.STOPPING,
+                pid=process.pid,
+            )
             process.terminate()
 
             try:
@@ -578,6 +653,12 @@ class ProcessPilot:
                     process_entry,
                 )
                 process.kill()
+                process.wait()
+
+            process_entry.update_status(
+                status=ProcessState.STOPPED,
+                return_code=process.returncode,
+            )
 
 
 if __name__ == "__main__":

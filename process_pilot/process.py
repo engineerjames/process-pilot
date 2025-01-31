@@ -3,7 +3,9 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from tkinter import N
 from typing import Any, cast
 
 import psutil
@@ -12,6 +14,31 @@ from pydantic import BaseModel, Field, model_validator
 
 from process_pilot.plugin import LifecycleHookType, ReadyStrategyType, StatHandlerType
 from process_pilot.types import ProcessHookType, ShutdownStrategy
+
+
+class ProcessState(str, Enum):
+    """Enumeration for the state of a process."""
+
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+
+
+class ProcessStatus(BaseModel):
+    """Model for the status of a process."""
+
+    name: str
+    """Name of the process."""
+
+    pid: int
+    """Process ID of the process."""
+
+    status: ProcessState
+    """Current state of the process."""
+
+    return_code: int | None
+    """Return code of the process if it has exited."""
 
 
 @dataclass
@@ -157,6 +184,10 @@ class Process(BaseModel):
         "pre_start": [],
     }
 
+    _pid: int = 0
+    _status: ProcessState = ProcessState.STOPPED
+    _return_code: int = -1
+
     @property
     def lifecycle_hook_functions(self) -> dict[ProcessHookType, list[LifecycleHookType]]:
         """Return the lifecycle hooks dictionary."""
@@ -218,6 +249,38 @@ class Process(BaseModel):
             cpu_usage_percent=self._runtime_info.cpu_usage_percent,
             max_memory_usage_mb=self._runtime_info.max_memory_usage_mb,
             max_cpu_usage_percent=self._runtime_info.max_cpu_usage,
+        )
+
+    def update_status(
+        self,
+        status: ProcessState,
+        pid: int | None = None,
+        return_code: int | None = None,
+    ) -> None:
+        """Update the process status."""
+        self._status = status
+
+        if status == ProcessState.STOPPED:
+            self._pid = 0
+
+        if status in ProcessState.RUNNING:
+            self._return_code = -1
+
+        # Set the PID if provided and not already set
+        if pid is not None and self._pid == 0:
+            self._pid = pid
+
+        # Only set the return code if it was provided
+        if return_code is not None:
+            self._return_code = return_code
+
+    def get_status(self) -> ProcessStatus:
+        """Create a ProcessStatus object from current process state."""
+        return ProcessStatus(
+            name=self.name,
+            pid=self._pid,
+            status=self._status,
+            return_code=self._return_code,
         )
 
 

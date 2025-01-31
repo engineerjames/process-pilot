@@ -683,10 +683,12 @@ def test_get_running_process(pilot: ProcessPilot, mocker: MockerFixture) -> None
 
     process = pilot.get_running_process(1234)
     assert process is not None
+    assert isinstance(process, subprocess.Popen)
     assert process.pid == 1234
 
     process = pilot.get_running_process("test_process")
     assert process is not None
+    assert isinstance(process, subprocess.Popen)
     assert process.pid == 1234
 
     process = pilot.get_running_process("nonexistent")
