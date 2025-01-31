@@ -549,14 +549,14 @@ def test_resolve_paths_with_wildcard(mocker: MockerFixture) -> None:
     """Test resolve_paths with wildcard in path."""
     mocker.patch("pathlib.Path.is_file", return_value=True)
     mocker.patch("pathlib.Path.exists", return_value=True)
-    mocker.patch("pathlib.Path.glob", return_value=[Path("/test/path/executable")])
+    mocker.patch("pathlib.Path.rglob", return_value=[Path("/test/path/executable")])
     manifest = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/*"))])
     assert manifest.processes[0].path == Path("/test/path/executable").resolve()
 
 
 def test_resolve_paths_no_wildcard_match(mocker: MockerFixture) -> None:
     """Test resolve_paths with no matches for wildcard."""
-    mocker.patch("pathlib.Path.glob", return_value=[])
+    mocker.patch("pathlib.Path.rglob", return_value=[])
     mocker.patch("pathlib.Path.exists", return_value=True)
     with pytest.raises(ValueError, match="No matches found for wildcard path"):
         _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/*"))])
@@ -741,11 +741,13 @@ def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
     with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
         pilot.restart_processes(["nonexistent"])
 
+
 def test_update_status_basic() -> None:
     """Test basic status update."""
     process = Process(name="test", path=Path("/test/path"))
     process.update_status(ProcessState.RUNNING)
     assert process._status == ProcessState.RUNNING
+
 
 def test_update_status_stopped_resets_pid() -> None:
     """Test that STOPPED state resets PID to 0."""
@@ -754,6 +756,7 @@ def test_update_status_stopped_resets_pid() -> None:
     process.update_status(ProcessState.STOPPED)
     assert process._pid == 0
 
+
 def test_update_status_running_resets_return_code() -> None:
     """Test that RUNNING state resets return code to -1."""
     process = Process(name="test", path=Path("/test/path"))
@@ -761,11 +764,13 @@ def test_update_status_running_resets_return_code() -> None:
     process.update_status(ProcessState.RUNNING)
     assert process._return_code == -1
 
+
 def test_update_status_pid_when_zero() -> None:
     """Test setting PID when current PID is 0."""
     process = Process(name="test", path=Path("/test/path"))
     process.update_status(ProcessState.RUNNING, pid=1234)
     assert process._pid == 1234
+
 
 def test_update_status_pid_when_set() -> None:
     """Test that PID is not updated when already set."""
@@ -774,11 +779,13 @@ def test_update_status_pid_when_set() -> None:
     process.update_status(ProcessState.RUNNING, pid=5678)
     assert process._pid == 1234
 
+
 def test_update_status_with_return_code() -> None:
     """Test setting return code."""
     process = Process(name="test", path=Path("/test/path"))
     process.update_status(ProcessState.STOPPED, return_code=1)
     assert process._return_code == 1
+
 
 def test_update_status_with_pid_and_return_code() -> None:
     """Test setting both PID and return code."""
