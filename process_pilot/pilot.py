@@ -9,6 +9,7 @@ import threading
 from copy import deepcopy
 from pathlib import Path
 from time import sleep
+from typing import overload
 
 import psutil
 
@@ -312,6 +313,15 @@ class ProcessPilot:
     def get_manifest_processes(self) -> list[Process]:
         """Get all processes specified in the manifest."""
         return deepcopy(self._manifest.processes)
+
+    @overload
+    def get_running_process(self, process_id: None = None) -> list[ProcessStatus] | None: ...
+
+    @overload
+    def get_running_process(self, process_id: int) -> ProcessStatus | None: ...
+
+    @overload
+    def get_running_process(self, process_id: str) -> ProcessStatus | None: ...
 
     def get_running_process(
         self,
