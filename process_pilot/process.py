@@ -292,6 +292,9 @@ class ProcessManifest(BaseModel):
     control_server: str | None = None
     """Name of the control server implementation to use - must be provided by a plugin."""
 
+    base_directory: Path | None = None
+    """Base directory to use for all relative paths in the manifest."""
+
     _manifest_path: Path | None = None
 
     @model_validator(mode="after")
@@ -315,15 +318,28 @@ class ProcessManifest(BaseModel):
 
             # Normalize path separators and resolve relative paths
             if not process.path.is_absolute():
-                process.path = manifest_dir / process.path
+                process.path = (
+                    manifest_dir / process.path if self.base_directory is None else self.base_directory / process.path
+                )
                 process.path = process.path.resolve()
 
             # Handle wildcard matches
             if "*" in str(process.path):
-                matched_paths = list(process.path.parent.glob(process.path.name))
+                matched_paths = (
+                    list(process.path.parent.rglob(process.path.name))
+                    if self.base_directory is None
+                    else list(self.base_directory.rglob(process.path.name))
+                )
                 if not matched_paths:
                     error_message = f"No matches found for wildcard path: {process.path}"
                     raise ValueError(error_message)
+                elif len(matched_paths) > 1:
+                    logging.warning(
+                        "Multiple matches found for wildcard path: %s: %s\n\nChoosing the first match.",
+                        process.path.name,
+                        matched_paths,
+                    )
+
                 process.path = Path(matched_paths[0]).resolve()
 
             # Validate that the executable exists
