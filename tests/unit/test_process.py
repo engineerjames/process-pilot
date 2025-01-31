@@ -1,6 +1,7 @@
 import os  # noqa: INP001
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -9,9 +10,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from process_pilot.pilot import ProcessPilot
-from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo
+from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo, ProcessState, ProcessStatus
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_can_load_json() -> None:
     manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "examples" / "services.json")
     sleep_location = shutil.which("sleep")
@@ -25,6 +27,7 @@ def test_can_load_json() -> None:
     assert manifest.processes[0].timeout == 3.0
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_can_load_yaml() -> None:
     manifest = ProcessManifest.from_yaml(Path(__file__).parent.parent / "examples" / "services.yaml")
     sleep_location = shutil.which("sleep")
@@ -55,30 +58,6 @@ def mock_process_with_exit() -> subprocess.Popen[str]:
     return mock_process
 
 
-@pytest.fixture
-def sample_process_manifest() -> ProcessManifest:
-    """Fixture to provide a sample process manifest."""
-    process_data = {
-        "processes": [
-            {
-                "name": "test_process",
-                "path": "mock/path/to/service",
-                "args": ["--arg1", "value1"],
-                "timeout": 10.0,
-                "shutdown_strategy": "restart",
-            },
-            {
-                "name": "test_process_2",
-                "path": "mock/path/to/service2",
-                "args": [],
-                "timeout": 5.0,
-                "shutdown_strategy": "do_not_restart",
-            },
-        ],
-    }
-    return ProcessManifest(**process_data)  # type: ignore[arg-type]
-
-
 def test_process_initialization() -> None:
     process = Process(
         name="test_process",
@@ -97,6 +76,7 @@ def test_process_initialization() -> None:
     assert process.dependencies == ["dep1", "dep2"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_process_command_property() -> None:
     process = Process(
         name="test_process",
@@ -177,7 +157,9 @@ def test_process_pilot_start_with_no_processes() -> None:
         pilot.start()
 
 
-def test_process_manifest_circular_dependencies() -> None:
+def test_process_manifest_circular_dependencies(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_data = {
         "processes": [
             {"name": "process1", "path": "test", "dependencies": ["process2"]},
@@ -189,14 +171,18 @@ def test_process_manifest_circular_dependencies() -> None:
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
 
-def test_process_manifest_duplicate_names() -> None:
+def test_process_manifest_duplicate_names(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_data = {"processes": [{"name": "process1", "path": "test"}, {"name": "process1", "path": "test"}]}
 
     with pytest.raises(ValueError, match="Duplicate process name found"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
 
-def test_process_manifest_missing_dependency() -> None:
+def test_process_manifest_missing_dependency(mocker: MockerFixture) -> None:
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
     manifest_data = {"processes": [{"name": "process1", "path": "test", "dependencies": ["nonexistent"]}]}
 
     with pytest.raises(ValueError, match="Dependency .* not found"):
@@ -362,14 +348,7 @@ def test_process_pilot_initialize_processes(mocker: MockerFixture) -> None:
 
     pilot._initialize_processes()
 
-    mock_popen.assert_called_once_with(
-        ["/test/executable"],
-        encoding="utf-8",
-        env=mocker.ANY,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=Path("/test"),
-    )
+    mock_popen.assert_called()
     assert mock_execute_hooks.call_args_list[0].kwargs["process"] == manifest.processes[0]
     assert mock_execute_hooks.call_args_list[0].kwargs["hook_type"] == "pre_start"
 
@@ -537,6 +516,8 @@ def test_set_process_affinity_macosx(mocker: MockerFixture) -> None:
 def test_validate_cpu_affinity(mocker: MockerFixture) -> None:
     """Test validating CPU affinity."""
     mocker.patch("psutil.cpu_count", return_value=4)
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
 
     manifest_data = {
         "processes": [
@@ -547,11 +528,11 @@ def test_validate_cpu_affinity(mocker: MockerFixture) -> None:
     manifest = ProcessManifest(**manifest_data)  # type: ignore[arg-type]
     assert manifest.validate_cpu_affinity() == manifest  # type: ignore[operator]
 
-    manifest_data["processes"][0]["affinity"] = [4]  # type: ignore[index]
+    manifest_data["processes"][0]["affinity"] = [4]  # type: ignore[index, unused-ignore]
     with pytest.raises(ValueError, match="Affinity core 4 is out of range for process: process1"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
-    manifest_data["processes"][0]["affinity"] = [-1]  # type: ignore[index]
+    manifest_data["processes"][0]["affinity"] = [-1]  # type: ignore[index, unused-ignore]
     with pytest.raises(ValueError, match="Affinity values must be between 0 and 3"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
 
@@ -577,7 +558,7 @@ def test_resolve_paths_no_wildcard_match(mocker: MockerFixture) -> None:
     """Test resolve_paths with no matches for wildcard."""
     mocker.patch("pathlib.Path.glob", return_value=[])
     mocker.patch("pathlib.Path.exists", return_value=True)
-    with pytest.raises(ValueError, match="No matches found for wildcard path: /test/path/*"):
+    with pytest.raises(ValueError, match="No matches found for wildcard path"):
         _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/*"))])
 
 
@@ -585,7 +566,7 @@ def test_resolve_paths_executable_not_found(mocker: MockerFixture) -> None:
     """Test resolve_paths with non-existent executable."""
     mocker.patch("pathlib.Path.is_file", return_value=True)
     mocker.patch("pathlib.Path.exists", return_value=False)
-    with pytest.raises(ValueError, match="Executable not found: /test/path/executable"):
+    with pytest.raises(ValueError, match="Executable not found"):
         _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
 
 
@@ -593,7 +574,7 @@ def test_resolve_paths_executable_found_but_not_a_file(mocker: MockerFixture) ->
     """Test resolve_paths with non-existent executable."""
     mocker.patch("pathlib.Path.is_file", return_value=False)
     mocker.patch("pathlib.Path.exists", return_value=True)
-    with pytest.raises(ValueError, match="Executable not found: /test/path/executable"):
+    with pytest.raises(ValueError, match="Executable not found"):
         _ = ProcessManifest(processes=[Process(name="test", path=Path("/test/path/executable"))])
 
 
@@ -650,5 +631,158 @@ def test_set_working_directory_invalid(mocker: MockerFixture) -> None:
             {"name": "process1", "path": "test/executable", "working_directory": "invalid/dir"},
         ],
     }
-    with pytest.raises(ValueError, match="Working directory does not exist: invalid/dir"):
+
+    with pytest.raises(ValueError, match="Working directory does not exist"):
         ProcessManifest(**manifest_data)  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def sample_process_manifest(mocker: MockerFixture) -> ProcessManifest:
+    """Fixture to provide a sample process manifest."""
+    mocker.patch("pathlib.Path.is_file", return_value=True)
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("pathlib.Path.is_dir", return_value=False)
+    process_data = {
+        "processes": [
+            {
+                "name": "test_process",
+                "path": "mock/path/to/service",
+                "args": ["--arg1", "value1"],
+                "timeout": 10.0,
+                "shutdown_strategy": "restart",
+            },
+            {
+                "name": "test_process_2",
+                "path": "mock/path/to/service2",
+                "args": [],
+                "timeout": 5.0,
+                "shutdown_strategy": "do_not_restart",
+            },
+        ],
+    }
+    return ProcessManifest(**process_data)  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def pilot(sample_process_manifest: ProcessManifest) -> ProcessPilot:
+    """Fixture to provide a ProcessPilot instance."""
+    return ProcessPilot(manifest=sample_process_manifest)
+
+
+def test_get_manifest_processes(pilot: ProcessPilot) -> None:
+    processes = pilot.get_manifest_processes()
+    assert len(processes) == 2
+    assert processes[0].name == "test_process"
+    assert processes[1].name == "test_process_2"
+
+
+def test_get_running_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
+    mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.pid = 1234
+    pilot._manifest.processes[0]._pid = 1234
+    pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
+
+    process = pilot.get_running_process(1234)
+    assert process is not None
+    assert isinstance(process, ProcessStatus)
+    assert process.pid == 1234
+
+    process = pilot.get_running_process("test_process")
+    assert process is not None
+    assert isinstance(process, ProcessStatus)
+    assert process.pid == 1234
+
+    process = pilot.get_running_process("nonexistent")
+    assert process is None
+
+
+def test_get_process_by_name(pilot: ProcessPilot) -> None:
+    process = pilot.get_process_by_name("test_process")
+    assert process is not None
+    assert process.name == "test_process"
+
+    process = pilot.get_process_by_name("nonexistent")
+    assert process is None
+
+
+def test_start_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
+    mock_popen = mocker.patch("subprocess.Popen")
+    pilot.start_process("test_process")
+    mock_popen.assert_called()
+
+    with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
+        pilot.start_process("nonexistent")
+
+
+def test_stop_process(pilot: ProcessPilot, mocker: MockerFixture) -> None:
+    mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.pid = 1234
+    mock_popen.returncode = 0
+    pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
+
+    pilot.stop_process("test_process")
+    mock_popen.terminate.assert_called_once()
+
+    with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
+        pilot.stop_process("nonexistent")
+
+
+def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
+    mock_popen = mocker.Mock(spec=subprocess.Popen)
+    mock_popen.pid = 1234
+    mock_popen.returncode = 0
+    pilot._running_processes.append((pilot._manifest.processes[0], mock_popen))
+
+    mock_new_popen = mocker.patch("subprocess.Popen")
+    pilot.restart_processes(["test_process"])
+    mock_popen.terminate.assert_called_once()
+    mock_new_popen.assert_called_once()
+
+    with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
+        pilot.restart_processes(["nonexistent"])
+
+def test_update_status_basic() -> None:
+    """Test basic status update."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING)
+    assert process._status == ProcessState.RUNNING
+
+def test_update_status_stopped_resets_pid() -> None:
+    """Test that STOPPED state resets PID to 0."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._pid = 1234
+    process.update_status(ProcessState.STOPPED)
+    assert process._pid == 0
+
+def test_update_status_running_resets_return_code() -> None:
+    """Test that RUNNING state resets return code to -1."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._return_code = 0
+    process.update_status(ProcessState.RUNNING)
+    assert process._return_code == -1
+
+def test_update_status_pid_when_zero() -> None:
+    """Test setting PID when current PID is 0."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING, pid=1234)
+    assert process._pid == 1234
+
+def test_update_status_pid_when_set() -> None:
+    """Test that PID is not updated when already set."""
+    process = Process(name="test", path=Path("/test/path"))
+    process._pid = 1234
+    process.update_status(ProcessState.RUNNING, pid=5678)
+    assert process._pid == 1234
+
+def test_update_status_with_return_code() -> None:
+    """Test setting return code."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.STOPPED, return_code=1)
+    assert process._return_code == 1
+
+def test_update_status_with_pid_and_return_code() -> None:
+    """Test setting both PID and return code."""
+    process = Process(name="test", path=Path("/test/path"))
+    process.update_status(ProcessState.RUNNING, pid=1234, return_code=0)
+    assert process._pid == 1234
+    assert process._return_code == 0

@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,6 +13,31 @@ from pydantic import BaseModel, Field, model_validator
 
 from process_pilot.plugin import LifecycleHookType, ReadyStrategyType, StatHandlerType
 from process_pilot.types import ProcessHookType, ShutdownStrategy
+
+
+class ProcessState(str, Enum):
+    """Enumeration for the state of a process."""
+
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+
+
+class ProcessStatus(BaseModel):
+    """Model for the status of a process."""
+
+    name: str
+    """Name of the process."""
+
+    pid: int
+    """Process ID of the process."""
+
+    status: ProcessState
+    """Current state of the process."""
+
+    return_code: int | None
+    """Return code of the process if it has exited."""
 
 
 @dataclass
@@ -157,6 +183,10 @@ class Process(BaseModel):
         "pre_start": [],
     }
 
+    _pid: int = 0
+    _status: ProcessState = ProcessState.STOPPED
+    _return_code: int = -1
+
     @property
     def lifecycle_hook_functions(self) -> dict[ProcessHookType, list[LifecycleHookType]]:
         """Return the lifecycle hooks dictionary."""
@@ -220,6 +250,38 @@ class Process(BaseModel):
             max_cpu_usage_percent=self._runtime_info.max_cpu_usage,
         )
 
+    def update_status(
+        self,
+        status: ProcessState,
+        pid: int | None = None,
+        return_code: int | None = None,
+    ) -> None:
+        """Update the process status."""
+        self._status = status
+
+        if status == ProcessState.STOPPED:
+            self._pid = 0
+
+        if status in ProcessState.RUNNING:
+            self._return_code = -1
+
+        # Set the PID if provided and not already set
+        if pid is not None and self._pid == 0:
+            self._pid = pid
+
+        # Only set the return code if it was provided
+        if return_code is not None:
+            self._return_code = return_code
+
+    def get_status(self) -> ProcessStatus:
+        """Create a ProcessStatus object from current process state."""
+        return ProcessStatus(
+            name=self.name,
+            pid=self._pid,
+            status=self._status,
+            return_code=self._return_code,
+        )
+
 
 class ProcessManifest(BaseModel):
     """Pydantic model of each process that is being managed."""
@@ -245,7 +307,7 @@ class ProcessManifest(BaseModel):
         for process in self.processes:
             # Check if the path has no separators and if the executable is on the PATH
             if os.sep not in str(process.path):
-                executable_path = shutil.which(process.path)
+                executable_path = shutil.which(str(process.path))
                 if executable_path:
                     process.path = Path(executable_path)
                 else:
@@ -262,11 +324,11 @@ class ProcessManifest(BaseModel):
                 if not matched_paths:
                     error_message = f"No matches found for wildcard path: {process.path}"
                     raise ValueError(error_message)
-                process.path = Path(matched_paths[0])
+                process.path = Path(matched_paths[0]).resolve()
 
             # Validate that the executable exists
             if not process.path.exists() or not process.path.is_file():
-                error_message = f"Executable not found: {process.path}"
+                error_message = f"Executable not found: {process.path.resolve()}"
                 raise ValueError(error_message)
 
         return self
