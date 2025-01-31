@@ -340,7 +340,6 @@ class ProcessManifest(BaseModel):
                         matched_paths,
                     )
 
-                process.path = Path(matched_paths[0])
                 process.path = Path(matched_paths[0]).resolve()
 
             # Validate that the executable exists
