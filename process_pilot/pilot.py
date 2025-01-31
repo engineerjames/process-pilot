@@ -8,23 +8,20 @@ import sys
 import threading
 from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 from time import sleep
 from typing import overload
 
 import psutil
 
-from process_pilot.plugin import (
-    ControlServer,
-    ControlServerType,
-    LifecycleHookType,
-    Plugin,
-    ReadyStrategyType,
-    StatHandlerType,
-)
+from process_pilot.plugin import (ControlServer, ControlServerType,
+                                  LifecycleHookType, Plugin, ReadyStrategyType,
+                                  StatHandlerType)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
-from process_pilot.process import Process, ProcessManifest, ProcessState, ProcessStats, ProcessStatus
+from process_pilot.process import (Process, ProcessManifest, ProcessState,
+                                   ProcessStats, ProcessStatus)
 from process_pilot.types import ProcessHookType
 
 
@@ -50,6 +47,7 @@ class ProcessPilot:
         self._control_server_thread: threading.Thread | None = None
         self._process_poll_interval_secs = process_poll_interval
         self._ready_check_interval_secs = ready_check_interval
+        self._running_processes_lock = Lock()
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
 
@@ -248,8 +246,9 @@ class ProcessPilot:
             )
 
             # Update running processes list
-            self._running_processes.remove((process_entry, process))
-            self._running_processes.append((process_entry, new_process))
+            with self._running_processes_lock:
+                self._running_processes.remove((process_entry, process))
+                self._running_processes.append((process_entry, new_process))
 
             # Execute restart hooks
             self.execute_lifecycle_hooks(process=process_entry, popen=new_process, hook_type="on_restart")
@@ -380,8 +379,8 @@ class ProcessPilot:
             return_code=None,
         )
 
-        # TODO: Add a synchronization mechanism surrounding the running processes?
-        self._running_processes.append((process, new_popen_result))
+        with self._running_processes_lock:
+            self._running_processes.append((process, new_popen_result))
 
     def stop_process(self, name: str) -> None:
         """Stop a specific process by its manifest name."""
@@ -406,8 +405,9 @@ class ProcessPilot:
                     return_code=popen.returncode,
                 )
 
-                # TODO: Add a synchronization mechanism surrounding the running processes?
-                self._running_processes.remove((process_entry, popen))
+                with self._running_processes_lock:
+                    self._running_processes.remove((process_entry, popen))
+
                 return
         msg = f"Process '{name}' not found"
         raise ValueError(msg)
@@ -466,7 +466,8 @@ class ProcessPilot:
                 hook_type="post_start",
             )
 
-            self._running_processes.append((entry, new_popen_result))
+            with self._running_processes_lock:
+                self._running_processes.append((entry, new_popen_result))
 
     @staticmethod
     def execute_lifecycle_hooks(
@@ -577,7 +578,8 @@ class ProcessPilot:
 
         self._collect_process_stats_and_notify()
 
-        self._running_processes.extend(processes_to_add)
+        with self._running_processes_lock:
+            self._running_processes.extend(processes_to_add)
 
     def set_process_affinity(self, process: subprocess.Popen[str], affinity: list[int] | None) -> None:
         """
@@ -625,17 +627,18 @@ class ProcessPilot:
                 logging.exception("Error in stats handler %s", handler_func)
 
     def _remove_processes(self, processes_to_remove: list[Process]) -> None:
-        for p in processes_to_remove:
-            processes_to_investigate = [(proc, popen) for (proc, popen) in self._running_processes if proc == p]
+        with self._running_processes_lock:
+            for p in processes_to_remove:
+                processes_to_investigate = [(proc, popen) for (proc, popen) in self._running_processes if proc == p]
 
-            for proc_to_inv in processes_to_investigate:
-                _, popen_obj = proc_to_inv
-                if popen_obj.returncode is not None:
-                    logging.debug(
-                        "Removing process with output: %s",
-                        popen_obj.communicate(),
-                    )
-                    self._running_processes.remove(proc_to_inv)
+                for proc_to_inv in processes_to_investigate:
+                    _, popen_obj = proc_to_inv
+                    if popen_obj.returncode is not None:
+                        logging.debug(
+                            "Removing process with output: %s",
+                            popen_obj.communicate(),
+                        )
+                        self._running_processes.remove(proc_to_inv)
 
     def stop(self) -> None:
         """Stop all services."""
