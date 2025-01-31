@@ -1,12 +1,10 @@
 {
-    "editor.formatOnSave": true,
-    "ruff.organizeImports": true,
-    "editor.codeActionsOnSave": {
-    "source.organizeImports": "always",
+  "editor.formatOnSave": true,
+  "ruff.organizeImports": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "always"
   },
-  "python.testing.pytestArgs": [
-    "-s"
-  ],
+  "python.testing.pytestArgs": ["-s"],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "python.analysis.languageServerMode": "full",

@@ -5,7 +5,6 @@ import shutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from tkinter import N
 from typing import Any, cast
 
 import psutil

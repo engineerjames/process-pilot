@@ -14,14 +14,18 @@ from typing import cast, overload
 
 import psutil
 
-from process_pilot.plugin import (ControlServer, ControlServerType,
-                                  LifecycleHookType, Plugin, ReadyStrategyType,
-                                  StatHandlerType)
+from process_pilot.plugin import (
+    ControlServer,
+    ControlServerType,
+    LifecycleHookType,
+    Plugin,
+    ReadyStrategyType,
+    StatHandlerType,
+)
 from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
-from process_pilot.process import (Process, ProcessManifest, ProcessState,
-                                   ProcessStats, ProcessStatus)
+from process_pilot.process import Process, ProcessManifest, ProcessState, ProcessStats, ProcessStatus
 from process_pilot.types import ProcessHookType
 
 
@@ -187,7 +191,7 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
-    def restart_processes(self, process_names: list[str] | str) -> None:
+    def restart_processes(self, process_names: list[str] | str) -> None:  # noqa: C901
         """
         Restart specific processes by name.
 
@@ -241,7 +245,7 @@ class ProcessPilot:
                 if not dep_proc:
                     logging.warning("Dependency %s not found for process %s", dep.name, name)
                     continue
-                
+
                 if dep_proc.get_status().status != ProcessState.RUNNING:
                     logging.warning("Dependency %s not satisfied for process %s", dep.name, name)
                     self.start_process(dep.name)

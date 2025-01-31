@@ -10,9 +10,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from process_pilot.pilot import ProcessPilot
-from process_pilot.process import (Process, ProcessManifest,
-                                   ProcessRuntimeInfo, ProcessState,
-                                   ProcessStatus)
+from process_pilot.process import Process, ProcessManifest, ProcessRuntimeInfo, ProcessState, ProcessStatus
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
@@ -742,7 +740,7 @@ def test_restart_processes(pilot: ProcessPilot, mocker: MockerFixture) -> None:
 
     with pytest.raises(ValueError, match="Process 'nonexistent' not found"):
         pilot.restart_processes(["nonexistent"])
-        
+
 def test_update_status_basic() -> None:
     """Test basic status update."""
     process = Process(name="test", path=Path("/test/path"))
