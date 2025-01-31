@@ -1,4 +1,5 @@
 import json  # noqa: INP001
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -88,6 +89,7 @@ def test_load_manifest_invalid_extension(tmp_path: Path) -> None:
         load_manifest(invalid_path)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_create_dependency_graph_basic(tmp_path: Path, sample_manifest: ProcessManifest) -> None:
     """Test creating a basic dependency graph."""
     output_path = create_dependency_graph(sample_manifest, "png", tmp_path)
@@ -95,6 +97,7 @@ def test_create_dependency_graph_basic(tmp_path: Path, sample_manifest: ProcessM
     assert output_path.suffix == ".png"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_create_dependency_graph_detailed(tmp_path: Path, sample_manifest: ProcessManifest) -> None:
     """Test creating a detailed dependency graph."""
     output_path = create_dependency_graph(sample_manifest, "svg", tmp_path, detailed=True)
@@ -102,6 +105,7 @@ def test_create_dependency_graph_detailed(tmp_path: Path, sample_manifest: Proce
     assert output_path.suffix == ".svg"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_create_dependency_graph_no_ready_strategy(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test creating a graph for process without ready strategy."""
     mocker.patch("pathlib.Path.is_file", return_value=True)
@@ -139,6 +143,7 @@ def test_create_dependency_graph_circular_deps(mocker: MockerFixture) -> None:
         )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_main_valid_args(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test main function with valid arguments."""
     manifest_path = tmp_path / "manifest.json"
@@ -173,6 +178,7 @@ def test_main_invalid_manifest(tmp_path: Path, mocker: MockerFixture) -> None:
         main()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_main_detailed_warning(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test warning when using detailed mode with non-SVG format."""
     manifest_path = tmp_path / "manifest.json"
@@ -191,6 +197,7 @@ def test_main_detailed_warning(tmp_path: Path, mocker: MockerFixture) -> None:
         mock_warning.assert_called_with("Detailed tooltips are only supported for SVG output")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_create_dependency_graph_output_dir_creation(tmp_path: Path, sample_manifest: ProcessManifest) -> None:
     """Test output directory creation."""
     output_dir = tmp_path / "nested" / "dir"
@@ -199,6 +206,7 @@ def test_create_dependency_graph_output_dir_creation(tmp_path: Path, sample_mani
     assert output_path.parent == output_dir
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 def test_create_dependency_graph_all_formats(tmp_path: Path, sample_manifest: ProcessManifest) -> None:
     """Test creating graphs in all supported formats."""
     for f in ["png", "svg", "pdf"]:
