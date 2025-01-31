@@ -315,7 +315,7 @@ class ProcessPilot:
 
     def get_running_process(
         self,
-        process_id: int | str | None,
+        process_id: int | str | None = None,
     ) -> list[ProcessStatus] | ProcessStatus | None:
         """
         Get a running process by its ID.
