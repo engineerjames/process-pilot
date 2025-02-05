@@ -1,5 +1,6 @@
 import importlib  # noqa: D100
 import logging
+import logging.config
 import os
 import pkgutil
 import platform
@@ -10,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 from threading import Lock
 from time import sleep
-from typing import cast, overload
+from typing import Any, cast, overload
 
 import psutil
 
@@ -38,6 +39,7 @@ class ProcessPilot:
         plugin_directory: Path | None = None,
         process_poll_interval: float = 0.1,
         ready_check_interval: float = 0.1,
+        logger_config: dict[str, Any] | None = None,
     ) -> None:
         """
         Construct the ProcessPilot class.
@@ -45,6 +47,7 @@ class ProcessPilot:
         :param manifest: Manifest that contains a definition for each process
         :param poll_interval: The amount of time to wait in-between service checks in seconds
         :param ready_check_interval: The amount of time to wait in-between readiness checks in seconds
+        :param logger_config: Optional logger configuration dictionary
         """
         self._manifest = manifest
         self._control_server: ControlServer | None = None
@@ -56,13 +59,15 @@ class ProcessPilot:
         self._shutting_down: bool = False
 
         self._thread = threading.Thread(target=self._run)
-        # self._control_thread = threading.Thread(target=self.)
 
         # Configure the logger
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-        )
+        if logger_config:
+            logging.config.dictConfig(logger_config)
+        else:
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format="%(asctime)s - %(levelname)s - %(message)s",
+            )
 
         # Load default plugins regardless
         file_ready_plugin = FileReadyPlugin()
