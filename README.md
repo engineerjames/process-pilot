@@ -98,7 +98,7 @@ The process manifest defines the processes to be managed. It can be written in J
   - `do_not_restart`: Do not restart the process after it stops.
   - `restart`: Restart the process after it stops. This is the default.
   - `shutdown_everything`: Stop all processes when this process stops.
-- `ready_strategy`: The strategy to use to determine wheßn the process is ready. Possible values are:
+- `ready_strategy`: The strategy to use to determine when the process is ready. Possible values are:
   - `tcp`: The process is ready when it starts listening on a specified TCP port.
   - `pipe`: The process is ready when it writes a specific signal to a named pipe.
   - `file`: The process is ready when a specific file is created.
