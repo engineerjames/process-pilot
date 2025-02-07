@@ -93,11 +93,12 @@ The process manifest defines the processes to be managed. It can be written in J
 - `path`: The path to the executable or script to be run.
 - `args`: A list of arguments to be passed to the process.
 - `timeout`: The maximum time (in seconds) to wait for the process to stop.
+- `kill_timeout`: The maximum time (in seconds) to wait for a process to stop after sending a kill signal. Defaults to 5.0 seconds.
 - `shutdown_strategy`: The strategy to use when shutting down the process. Possible values are:
   - `do_not_restart`: Do not restart the process after it stops.
   - `restart`: Restart the process after it stops. This is the default.
   - `shutdown_everything`: Stop all processes when this process stops.
-- `ready_strategy`: The strategy to use to determine when the process is ready. Possible values are:
+- `ready_strategy`: The strategy to use to determine wheßn the process is ready. Possible values are:
   - `tcp`: The process is ready when it starts listening on a specified TCP port.
   - `pipe`: The process is ready when it writes a specific signal to a named pipe.
   - `file`: The process is ready when a specific file is created.
@@ -109,6 +110,7 @@ The following is an example of a JSON manifest:
 
 ```json
 {
+  "kill_timeout": 2.0,
   "processes": [
     {
       "name": "example",
@@ -134,6 +136,8 @@ The following is an example of a JSON manifest:
 The following is an example of a YAML manifest:
 
 ```yaml
+control_server: my_server
+kill_timeout: 2.0
 processes:
   - name: example
     path: sleep

@@ -57,6 +57,11 @@ class ProcessPilot:
         self._running_processes_lock = Lock()
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
+        self._creation_flags: int = (
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            if platform.system() == "Windows"
+            else 0  # The default
+        )
 
         self._thread = threading.Thread(target=self._run)
 
@@ -261,9 +266,10 @@ class ProcessPilot:
                 process_entry.command,
                 encoding="utf-8",
                 env={**os.environ, **process_entry.env},
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=process_entry.working_directory,
+                creationflags=self._creation_flags,
             )
 
             # Update running processes list
@@ -388,9 +394,10 @@ class ProcessPilot:
             process.command,
             encoding="utf-8",
             env={**os.environ, **process.env},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             cwd=process.working_directory,
+            creationflags=self._creation_flags,
         )
         self.set_process_affinity(new_popen_result, process.affinity)
 
@@ -419,7 +426,11 @@ class ProcessPilot:
                 except subprocess.TimeoutExpired:
                     logging.warning("Process %s did not terminate gracefully - killing", name)
                     popen.kill()
-                    popen.wait()
+                    try:
+                        popen.wait(self._manifest.kill_timeout)
+                    except subprocess.TimeoutExpired:
+                        logging.critical("Process %s is unresponsive to kill! Forcing exit.", name)
+                        os._exit(1)  # Force exit the entire program
 
                 process_entry.update_status(
                     status=ProcessState.STOPPED,
@@ -459,9 +470,10 @@ class ProcessPilot:
                 entry.command,
                 encoding="utf-8",
                 env=process_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=entry.working_directory,
+                creationflags=self._creation_flags,
             )
 
             self.set_process_affinity(new_popen_result, entry.affinity)
@@ -565,9 +577,10 @@ class ProcessPilot:
                         process_entry.command,
                         encoding="utf-8",
                         env={**os.environ, **process_entry.env},
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,  # TODO: Allow users to customize this
+                        stderr=subprocess.DEVNULL,
                         cwd=process_entry.working_directory,
+                        creationflags=self._creation_flags,
                     )
 
                     self.set_process_affinity(restarted_process, process_entry.affinity)
@@ -664,19 +677,26 @@ class ProcessPilot:
     def stop(self) -> None:
         """Stop all services."""
         if self._thread.is_alive():
+            logging.debug("Shutting down ProcessPilot...")
             self._shutting_down = True
             self._thread.join(5.0)  # TODO: Update this
 
         if self._control_server:
+            logging.debug("Shutting down control server...")
             self._control_server.stop()
             if self._control_server_thread and self._control_server_thread.is_alive():
                 self._control_server_thread.join(5.0)  # TODO: Update this
+
+            logging.debug("Control server stopped.")
 
         for process_entry, process in self._running_processes:
             process_entry.update_status(
                 status=ProcessState.STOPPING,
                 pid=process.pid,
             )
+
+            logging.debug("Stopping process: %s", process_entry.name)
+
             process.terminate()
 
             try:
@@ -687,12 +707,18 @@ class ProcessPilot:
                     process_entry,
                 )
                 process.kill()
-                process.wait()
+                try:
+                    process.wait(self._manifest.kill_timeout)
+                except subprocess.TimeoutExpired:
+                    logging.critical("Process %s is unresponsive to kill! Forcing exit.", process_entry.name)
+                    os._exit(1)  # Force exit the entire program
 
             process_entry.update_status(
                 status=ProcessState.STOPPED,
                 return_code=process.returncode,
             )
+
+            logging.debug("Process %s stopped.", process_entry.name)
 
 
 if __name__ == "__main__":

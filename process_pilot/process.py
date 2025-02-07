@@ -292,6 +292,9 @@ class ProcessManifest(BaseModel):
     control_server: str | None = None
     """Name of the control server implementation to use - must be provided by a plugin."""
 
+    kill_timeout: float = 5.0
+    """The amount of time to wait for the process to exit before forcibly killing everything."""
+
     base_directory: Path | None = None
     """Base directory to use for all relative paths in the manifest."""
 
@@ -330,10 +333,12 @@ class ProcessManifest(BaseModel):
                     if self.base_directory is None
                     else list(self.base_directory.rglob(process.path.name))
                 )
+
                 if not matched_paths:
                     error_message = f"No matches found for wildcard path: {process.path}"
                     raise ValueError(error_message)
-                elif len(matched_paths) > 1:
+
+                if len(matched_paths) > 1:
                     logging.warning(
                         "Multiple matches found for wildcard path: %s: %s\n\nChoosing the first match.",
                         process.path.name,
