@@ -814,11 +814,11 @@ def mock_psutil_process() -> mock.MagicMock:
     return process
 
 
-def test_terminate_already_terminated_process(pilot: ProcessPilot, mock_process: mock.MagicMock) -> None:
+def test_terminate_already_terminated_process(pilot: ProcessPilot, mock_sub_process: mock.MagicMock) -> None:
     """Test terminating an already terminated process."""
-    mock_process.pid = None
-    pilot._terminate_process_tree(mock_process)
-    mock_process.terminate.assert_not_called()
+    mock_sub_process.pid = None
+    pilot._terminate_process_tree(mock_sub_process)
+    mock_sub_process.terminate.assert_not_called()
 
 
 @mock.patch("platform.system", return_value="Windows")
