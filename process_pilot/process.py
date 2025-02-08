@@ -187,8 +187,8 @@ class Process(BaseModel):
     _status: ProcessState = ProcessState.STOPPED
     _return_code: int = -1
 
-    EXIT_CODE_FOR_RUNNING_PROCESS: int = -1
-    VALID_TRANSITIONS = {
+    _EXIT_CODE_FOR_RUNNING_PROCESS: int = -1
+    _VALID_TRANSITIONS = {
         ProcessState.STOPPED: {ProcessState.STARTING},
         ProcessState.STARTING: {ProcessState.RUNNING, ProcessState.STOPPING},
         ProcessState.RUNNING: {ProcessState.STOPPING},
@@ -266,7 +266,7 @@ class Process(BaseModel):
     ) -> None:
         """Update the process status."""
         # Just logging a warning for now in case I've missed some edge cases.
-        if status not in self.VALID_TRANSITIONS[self._status]:
+        if status not in self._VALID_TRANSITIONS[self._status]:
             logging.warning("Invalid status transition: %s -> %s", self._status, status)
 
         self._status = status
@@ -275,7 +275,7 @@ class Process(BaseModel):
             self._pid = 0
 
         if status == ProcessState.RUNNING:
-            self._return_code = -1
+            self._return_code = self._EXIT_CODE_FOR_RUNNING_PROCESS
 
         # Set the PID if provided and not already set
         if pid is not None and self._pid == 0:
