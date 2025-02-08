@@ -798,13 +798,6 @@ def test_update_status_with_pid_and_return_code() -> None:
     assert process._return_code == 0
 
 
-# @pytest.fixture
-# def pilot() -> ProcessPilot:
-#     """Create a ProcessPilot instance with an empty manifest."""
-#     manifest = ProcessManifest(processes=[])
-#     return ProcessPilot(manifest)
-
-
 @pytest.fixture
 def mock_sub_process() -> mock.MagicMock:
     """Create a mock subprocess.Popen instance."""
