@@ -187,6 +187,14 @@ class Process(BaseModel):
     _status: ProcessState = ProcessState.STOPPED
     _return_code: int = -1
 
+    _EXIT_CODE_FOR_RUNNING_PROCESS: int = -1
+    _VALID_TRANSITIONS = {
+        ProcessState.STOPPED: {ProcessState.STARTING},
+        ProcessState.STARTING: {ProcessState.RUNNING, ProcessState.STOPPING},
+        ProcessState.RUNNING: {ProcessState.STOPPING},
+        ProcessState.STOPPING: {ProcessState.STOPPED},
+    }
+
     @property
     def lifecycle_hook_functions(self) -> dict[ProcessHookType, list[LifecycleHookType]]:
         """Return the lifecycle hooks dictionary."""
@@ -257,13 +265,17 @@ class Process(BaseModel):
         return_code: int | None = None,
     ) -> None:
         """Update the process status."""
+        # Just logging a warning for now in case I've missed some edge cases.
+        if status not in self._VALID_TRANSITIONS[self._status]:
+            logging.warning("Invalid status transition: %s -> %s", self._status, status)
+
         self._status = status
 
         if status == ProcessState.STOPPED:
             self._pid = 0
 
-        if status in ProcessState.RUNNING:
-            self._return_code = -1
+        if status == ProcessState.RUNNING:
+            self._return_code = self._EXIT_CODE_FOR_RUNNING_PROCESS
 
         # Set the PID if provided and not already set
         if pid is not None and self._pid == 0:
@@ -274,7 +286,11 @@ class Process(BaseModel):
             self._return_code = return_code
 
     def get_status(self) -> ProcessStatus:
-        """Create a ProcessStatus object from current process state."""
+        """
+        Create a ProcessStatus object from current process state.
+
+        :returns: A ProcessStatus object containing the current state
+        """
         return ProcessStatus(
             name=self.name,
             pid=self._pid,

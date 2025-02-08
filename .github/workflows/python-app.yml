@@ -9,12 +9,15 @@ on:
 permissions:
   contents: read
 
+env:
+  GITLAB_CI: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
 
     steps:

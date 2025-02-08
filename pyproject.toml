@@ -3,7 +3,7 @@ name = "process-pilot"
 version = "0.4.3"
 description = "Process manager for Python"
 authors = [{ name = "James Armes", email = "jamesleearmes@gmail.com" }]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 readme = "README.md"
 keywords = [
     "process",

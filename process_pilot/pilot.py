@@ -1,9 +1,11 @@
-import importlib  # noqa: D100
+import contextlib  # noqa: D100
+import importlib
 import logging
 import logging.config
 import os
 import pkgutil
 import platform
+import signal
 import subprocess
 import sys
 import threading
@@ -201,15 +203,71 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
+    def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:
+        """
+        Terminate a process and all its children recursively in a cross-platform way.
+
+        :param process: The subprocess.Popen instance to terminate
+        :param timeout: Timeout in seconds to wait for process termination
+        """
+        if not process.pid:
+            logging.info("Process %s already terminated -- not scanning process tree", process)
+            return
+
+        try:
+            parent = psutil.Process(process.pid)
+
+            if platform.system() == "Windows":
+                # On Windows, we need to handle the process tree explicitly
+                children = parent.children(recursive=True)
+
+                logging.info("Found %i children for process %s", len(children), process.pid)
+
+                # First terminate children
+                for child in children:
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        child.terminate()
+
+                # Then terminate parent
+                process.terminate()
+
+                _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
+
+                # If any processes are still alive, kill them
+                for p in alive:
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        p.kill()
+            else:
+                # On Unix-like systems (Linux/macOS), we can use process groups instead
+                try:
+                    # Send SIGTERM to the process group
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    logging.info("Process %s did not terminate gracefully - killing", process.pid)
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    logging.warning("Process %s not found", process.pid)
+
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            # Process may have already terminated
+            pass
+        except Exception as e:  # noqa: BLE001
+            logging.warning("Unexpected error while terminating process tree: %s", str(e))
+
     def restart_processes(self, process_names: list[str] | str) -> None:  # noqa: C901
         """
         Restart specific processes by name.
 
-        :param process_names: List of process name(s) to restart
+        :param process_names: List of process name(s) to restart, or a single process name
 
         :raises ValueError: If any process name is not found
         """
         processes_to_restart: dict[str, tuple[Process, subprocess.Popen[str]]] = {}
+
+        if isinstance(process_names, str):
+            process_names = [process_names]
 
         # Validate all process names first
         for name in process_names:
@@ -233,14 +291,7 @@ class ProcessPilot:
                 return_code=None,
             )
 
-            # Stop the current process
-            process.terminate()
-            try:
-                process.wait(process_entry.timeout)
-            except subprocess.TimeoutExpired:
-                logging.warning("Process %s did not terminate gracefully - killing", name)
-                process.kill()
-                process.wait()
+            self._terminate_process_tree(process, timeout=process_entry.timeout)
 
             process_entry.update_status(
                 status=ProcessState.STOPPED,
@@ -411,38 +462,39 @@ class ProcessPilot:
             self._running_processes.append((process, new_popen_result))
 
     def stop_process(self, name: str) -> None:
-        """Stop a specific process by its manifest name."""
-        for process_entry, popen in self._running_processes:
-            if process_entry.name == name:
-                logging.info("Stopping process: %s", name)
-                process_entry.update_status(
-                    status=ProcessState.STOPPING,
-                    pid=popen.pid,
-                    return_code=None,
-                )
-                popen.terminate()
-                try:
-                    popen.wait(process_entry.timeout)
-                except subprocess.TimeoutExpired:
-                    logging.warning("Process %s did not terminate gracefully - killing", name)
-                    popen.kill()
-                    try:
-                        popen.wait(self._manifest.kill_timeout)
-                    except subprocess.TimeoutExpired:
-                        logging.critical("Process %s is unresponsive to kill! Forcing exit.", name)
-                        os._exit(1)  # Force exit the entire program
+        """
+        Stop a specific process by its manifest name.
 
-                process_entry.update_status(
-                    status=ProcessState.STOPPED,
-                    return_code=popen.returncode,
-                )
+        :param name: Name of the process to stop
+        :raises ValueError: If process name is not found
+        """
+        process_to_stop = next(
+            ((entry, proc) for entry, proc in self._running_processes if entry.name == name),
+            None,
+        )
 
-                with self._running_processes_lock:
-                    self._running_processes.remove((process_entry, popen))
+        if not process_to_stop:
+            msg = f"Process '{name}' not found"
+            raise ValueError(msg)
 
-                return
-        msg = f"Process '{name}' not found"
-        raise ValueError(msg)
+        process_entry, popen = process_to_stop
+
+        logging.info("Stopping process: %s", name)
+        process_entry.update_status(
+            status=ProcessState.STOPPING,
+            pid=popen.pid,
+            return_code=None,
+        )
+
+        self._terminate_process_tree(popen, timeout=process_entry.timeout)
+
+        process_entry.update_status(
+            status=ProcessState.STOPPED,
+            return_code=popen.returncode,
+        )
+
+        with self._running_processes_lock:
+            self._running_processes.remove((process_entry, popen))
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -488,7 +540,7 @@ class ProcessPilot:
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
                     error_message = f"Process {entry.name} failed to signal ready - terminating"
-                    new_popen_result.terminate()
+                    self._terminate_process_tree(new_popen_result, timeout=entry.timeout)
                     raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)
@@ -529,6 +581,13 @@ class ProcessPilot:
                 process_entry.record_process_stats(process.pid)
                 continue
 
+            # Ensure we kill off the entire process tree
+            # TODO: If the process is already terminated, how do we handle this?
+            # Killing off the process tree likely won't work because we can't find the
+            # orphans anymore.  We might need a mechanism to track orphaned processes
+            # ourselves.  Curse you Windows...
+            self._terminate_process_tree(process)
+
             processes_to_remove.append(process_entry)
 
             process_entry.update_status(
@@ -550,6 +609,9 @@ class ProcessPilot:
                         process.returncode,
                     )
                     self.stop()
+
+                    # Immediately return to avoid further processing
+                    return
                 case "do_not_restart":
                     logging.warning(
                         "%s shutdown with return code %i.",
@@ -637,6 +699,12 @@ class ProcessPilot:
             logging.debug("Set process affinity for %s to %s", str(process.pid), str(affinity))
         except psutil.Error as e:
             logging.warning("Failed to set process affinity: %s", e)
+        except psutil.AccessDenied:
+            logging.warning("Insufficient permissions to set process affinity")
+        except psutil.NoSuchProcess:
+            logging.warning("Process %s not found", process.pid)
+        except Exception as e:  # noqa: BLE001
+            logging.warning("Unexpected error while setting process affinity: %s", str(e))
 
     def _collect_process_stats_and_notify(self) -> None:
         # Collect and process stats
@@ -676,49 +744,53 @@ class ProcessPilot:
 
     def stop(self) -> None:
         """Stop all services."""
-        if self._thread.is_alive():
-            logging.debug("Shutting down ProcessPilot...")
-            self._shutting_down = True
-            self._thread.join(5.0)  # TODO: Update this
+        try:
+            if self._thread.is_alive():
+                logging.debug("Shutting down ProcessPilot...")
+                self._shutting_down = True
+                self._thread.join(5.0)  # TODO: Update this
 
-        if self._control_server:
-            logging.debug("Shutting down control server...")
-            self._control_server.stop()
-            if self._control_server_thread and self._control_server_thread.is_alive():
-                self._control_server_thread.join(5.0)  # TODO: Update this
+            if self._control_server:
+                logging.debug("Shutting down control server...")
+                self._control_server.stop()
+                if self._control_server_thread and self._control_server_thread.is_alive():
+                    self._control_server_thread.join(5.0)  # TODO: Update this
 
-            logging.debug("Control server stopped.")
+                logging.debug("Control server stopped.")
 
-        for process_entry, process in self._running_processes:
-            process_entry.update_status(
-                status=ProcessState.STOPPING,
-                pid=process.pid,
-            )
-
-            logging.debug("Stopping process: %s", process_entry.name)
-
-            process.terminate()
-
-            try:
-                process.wait(process_entry.timeout)
-            except subprocess.TimeoutExpired:
-                logging.warning(
-                    "Detected timeout for %s: forceably killing.",
-                    process_entry,
+            for process_entry, process in self._running_processes:
+                process_entry.update_status(
+                    status=ProcessState.STOPPING,
+                    pid=process.pid,
                 )
-                process.kill()
+
+                logging.debug("Stopping process: %s", process_entry.name)
+
+                self._terminate_process_tree(process, timeout=process_entry.timeout)
+
                 try:
-                    process.wait(self._manifest.kill_timeout)
+                    process.wait(process_entry.timeout)
                 except subprocess.TimeoutExpired:
-                    logging.critical("Process %s is unresponsive to kill! Forcing exit.", process_entry.name)
-                    os._exit(1)  # Force exit the entire program
+                    logging.warning(
+                        "Detected timeout for %s: forceably killing.",
+                        process_entry,
+                    )
+                    process.kill()
+                    try:
+                        process.wait(self._manifest.kill_timeout)
+                    except subprocess.TimeoutExpired:
+                        logging.critical("Process %s is unresponsive to kill! Forcing exit.", process_entry.name)
+                        os._exit(1)  # Force exit the entire program
 
-            process_entry.update_status(
-                status=ProcessState.STOPPED,
-                return_code=process.returncode,
-            )
+                process_entry.update_status(
+                    status=ProcessState.STOPPED,
+                    return_code=process.returncode,
+                )
 
-            logging.debug("Process %s stopped.", process_entry.name)
+                logging.debug("Process %s stopped.", process_entry.name)
+        finally:
+            self._running_processes.clear()
+            self._shutting_down = False
 
 
 if __name__ == "__main__":
