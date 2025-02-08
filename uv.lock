@@ -375,7 +375,7 @@ wheels = [
 
 [[package]]
 name = "process-pilot"
-version = "0.4.0"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "graphviz" },
