@@ -699,6 +699,12 @@ class ProcessPilot:
             logging.debug("Set process affinity for %s to %s", str(process.pid), str(affinity))
         except psutil.Error as e:
             logging.warning("Failed to set process affinity: %s", e)
+        except psutil.AccessDenied:
+            logging.warning("Insufficient permissions to set process affinity")
+        except psutil.NoSuchProcess:
+            logging.warning("Process %s not found", process.pid)
+        except Exception as e:  # noqa: BLE001
+            logging.warning("Unexpected error while setting process affinity: %s", str(e))
 
     def _collect_process_stats_and_notify(self) -> None:
         # Collect and process stats
@@ -738,49 +744,53 @@ class ProcessPilot:
 
     def stop(self) -> None:
         """Stop all services."""
-        if self._thread.is_alive():
-            logging.debug("Shutting down ProcessPilot...")
-            self._shutting_down = True
-            self._thread.join(5.0)  # TODO: Update this
+        try:
+            if self._thread.is_alive():
+                logging.debug("Shutting down ProcessPilot...")
+                self._shutting_down = True
+                self._thread.join(5.0)  # TODO: Update this
 
-        if self._control_server:
-            logging.debug("Shutting down control server...")
-            self._control_server.stop()
-            if self._control_server_thread and self._control_server_thread.is_alive():
-                self._control_server_thread.join(5.0)  # TODO: Update this
+            if self._control_server:
+                logging.debug("Shutting down control server...")
+                self._control_server.stop()
+                if self._control_server_thread and self._control_server_thread.is_alive():
+                    self._control_server_thread.join(5.0)  # TODO: Update this
 
-            logging.debug("Control server stopped.")
+                logging.debug("Control server stopped.")
 
-        for process_entry, process in self._running_processes:
-            process_entry.update_status(
-                status=ProcessState.STOPPING,
-                pid=process.pid,
-            )
-
-            logging.debug("Stopping process: %s", process_entry.name)
-
-            self._terminate_process_tree(process, timeout=process_entry.timeout)
-
-            try:
-                process.wait(process_entry.timeout)
-            except subprocess.TimeoutExpired:
-                logging.warning(
-                    "Detected timeout for %s: forceably killing.",
-                    process_entry,
+            for process_entry, process in self._running_processes:
+                process_entry.update_status(
+                    status=ProcessState.STOPPING,
+                    pid=process.pid,
                 )
-                process.kill()
+
+                logging.debug("Stopping process: %s", process_entry.name)
+
+                self._terminate_process_tree(process, timeout=process_entry.timeout)
+
                 try:
-                    process.wait(self._manifest.kill_timeout)
+                    process.wait(process_entry.timeout)
                 except subprocess.TimeoutExpired:
-                    logging.critical("Process %s is unresponsive to kill! Forcing exit.", process_entry.name)
-                    os._exit(1)  # Force exit the entire program
+                    logging.warning(
+                        "Detected timeout for %s: forceably killing.",
+                        process_entry,
+                    )
+                    process.kill()
+                    try:
+                        process.wait(self._manifest.kill_timeout)
+                    except subprocess.TimeoutExpired:
+                        logging.critical("Process %s is unresponsive to kill! Forcing exit.", process_entry.name)
+                        os._exit(1)  # Force exit the entire program
 
-            process_entry.update_status(
-                status=ProcessState.STOPPED,
-                return_code=process.returncode,
-            )
+                process_entry.update_status(
+                    status=ProcessState.STOPPED,
+                    return_code=process.returncode,
+                )
 
-            logging.debug("Process %s stopped.", process_entry.name)
+                logging.debug("Process %s stopped.", process_entry.name)
+        finally:
+            self._running_processes.clear()
+            self._shutting_down = False
 
 
 if __name__ == "__main__":
