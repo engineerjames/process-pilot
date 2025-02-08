@@ -462,29 +462,39 @@ class ProcessPilot:
             self._running_processes.append((process, new_popen_result))
 
     def stop_process(self, name: str) -> None:
-        """Stop a specific process by its manifest name."""
-        for process_entry, popen in self._running_processes:
-            if process_entry.name == name:
-                logging.info("Stopping process: %s", name)
-                process_entry.update_status(
-                    status=ProcessState.STOPPING,
-                    pid=popen.pid,
-                    return_code=None,
-                )
+        """
+        Stop a specific process by its manifest name.
 
-                self._terminate_process_tree(popen, timeout=process_entry.timeout)
+        :param name: Name of the process to stop
+        :raises ValueError: If process name is not found
+        """
+        process_to_stop = next(
+            ((entry, proc) for entry, proc in self._running_processes if entry.name == name),
+            None,
+        )
 
-                process_entry.update_status(
-                    status=ProcessState.STOPPED,
-                    return_code=popen.returncode,
-                )
+        if not process_to_stop:
+            msg = f"Process '{name}' not found"
+            raise ValueError(msg)
 
-                with self._running_processes_lock:
-                    self._running_processes.remove((process_entry, popen))
+        process_entry, popen = process_to_stop
 
-                return
-        msg = f"Process '{name}' not found"
-        raise ValueError(msg)
+        logging.info("Stopping process: %s", name)
+        process_entry.update_status(
+            status=ProcessState.STOPPING,
+            pid=popen.pid,
+            return_code=None,
+        )
+
+        self._terminate_process_tree(popen, timeout=process_entry.timeout)
+
+        process_entry.update_status(
+            status=ProcessState.STOPPED,
+            return_code=popen.returncode,
+        )
+
+        with self._running_processes_lock:
+            self._running_processes.remove((process_entry, popen))
 
     def _initialize_processes(self) -> None:
         """Initialize all processes and wait for ready signals."""
@@ -530,7 +540,7 @@ class ProcessPilot:
                     logging.debug("Process %s signaled ready", entry.name)
                 else:
                     error_message = f"Process {entry.name} failed to signal ready - terminating"
-                    new_popen_result.terminate()
+                    self._terminate_process_tree(new_popen_result, timeout=entry.timeout)
                     raise RuntimeError(error_message)  # TODO: Should we handle this differently?
             else:
                 logging.debug("No ready strategy for process %s", entry.name)
@@ -571,6 +581,13 @@ class ProcessPilot:
                 process_entry.record_process_stats(process.pid)
                 continue
 
+            # Ensure we kill off the entire process tree
+            # TODO: If the process is already terminated, how do we handle this?
+            # Killing off the process tree likely won't work because we can't find the
+            # orphans anymore.  We might need a mechanism to track orphaned processes
+            # ourselves.  Curse you Windows...
+            self._terminate_process_tree(process)
+
             processes_to_remove.append(process_entry)
 
             process_entry.update_status(
@@ -592,6 +609,9 @@ class ProcessPilot:
                         process.returncode,
                     )
                     self.stop()
+
+                    # Immediately return to avoid further processing
+                    return
                 case "do_not_restart":
                     logging.warning(
                         "%s shutdown with return code %i.",
@@ -739,7 +759,7 @@ class ProcessPilot:
 
             logging.debug("Stopping process: %s", process_entry.name)
 
-            process.terminate()
+            self._terminate_process_tree(process, timeout=process_entry.timeout)
 
             try:
                 process.wait(process_entry.timeout)
