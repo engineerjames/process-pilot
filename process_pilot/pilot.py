@@ -1,9 +1,11 @@
-import importlib  # noqa: D100
+import contextlib  # noqa: D100
+import importlib
 import logging
 import logging.config
 import os
 import pkgutil
 import platform
+import signal
 import subprocess
 import sys
 import threading
@@ -201,15 +203,71 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
+    def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:
+        """
+        Terminate a process and all its children recursively in a cross-platform way.
+
+        :param process: The subprocess.Popen instance to terminate
+        :param timeout: Timeout in seconds to wait for process termination
+        """
+        if not process.pid:
+            logging.info("Process %s already terminated -- not scanning process tree", process)
+            return
+
+        try:
+            parent = psutil.Process(process.pid)
+
+            if platform.system() == "Windows":
+                # On Windows, we need to handle the process tree explicitly
+                children = parent.children(recursive=True)
+
+                logging.info("Found %i children for process %s", len(children), process.pid)
+
+                # First terminate children
+                for child in children:
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        child.terminate()
+
+                # Then terminate parent
+                process.terminate()
+
+                _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
+
+                # If any processes are still alive, kill them
+                for p in alive:
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        p.kill()
+            else:
+                # On Unix-like systems (Linux/macOS), we can use process groups instead
+                try:
+                    # Send SIGTERM to the process group
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    logging.info("Process %s did not terminate gracefully - killing", process.pid)
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    logging.warning("Process %s not found", process.pid)
+
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            # Process may have already terminated
+            pass
+        except Exception as e:  # noqa: BLE001
+            logging.warning("Unexpected error while terminating process tree: %s", str(e))
+
     def restart_processes(self, process_names: list[str] | str) -> None:  # noqa: C901
         """
         Restart specific processes by name.
 
-        :param process_names: List of process name(s) to restart
+        :param process_names: List of process name(s) to restart, or a single process name
 
         :raises ValueError: If any process name is not found
         """
         processes_to_restart: dict[str, tuple[Process, subprocess.Popen[str]]] = {}
+
+        if isinstance(process_names, str):
+            process_names = [process_names]
 
         # Validate all process names first
         for name in process_names:
@@ -233,14 +291,7 @@ class ProcessPilot:
                 return_code=None,
             )
 
-            # Stop the current process
-            process.terminate()
-            try:
-                process.wait(process_entry.timeout)
-            except subprocess.TimeoutExpired:
-                logging.warning("Process %s did not terminate gracefully - killing", name)
-                process.kill()
-                process.wait()
+            self._terminate_process_tree(process, timeout=process_entry.timeout)
 
             process_entry.update_status(
                 status=ProcessState.STOPPED,
@@ -420,17 +471,8 @@ class ProcessPilot:
                     pid=popen.pid,
                     return_code=None,
                 )
-                popen.terminate()
-                try:
-                    popen.wait(process_entry.timeout)
-                except subprocess.TimeoutExpired:
-                    logging.warning("Process %s did not terminate gracefully - killing", name)
-                    popen.kill()
-                    try:
-                        popen.wait(self._manifest.kill_timeout)
-                    except subprocess.TimeoutExpired:
-                        logging.critical("Process %s is unresponsive to kill! Forcing exit.", name)
-                        os._exit(1)  # Force exit the entire program
+
+                self._terminate_process_tree(popen, timeout=process_entry.timeout)
 
                 process_entry.update_status(
                     status=ProcessState.STOPPED,
