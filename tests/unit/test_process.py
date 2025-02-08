@@ -814,6 +814,10 @@ def mock_psutil_process() -> mock.MagicMock:
     return process
 
 
+# Skip if Python 3.10
+@pytest.mark.skipif(
+    sys.version_info[:2] == (3, 10), reason="Python 3.10 has more strict type checking with subprocess.Popen"
+)
 def test_terminate_already_terminated_process(pilot: ProcessPilot, mock_sub_process: mock.MagicMock) -> None:
     """Test terminating an already terminated process."""
     mock_sub_process.pid = None
