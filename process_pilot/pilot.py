@@ -203,6 +203,20 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
+    def _terminate_similar_process_names(self, full_path: str | None) -> None:
+        # Also, check if there are any other processes with the same process name in
+        # case we are dealing with a Pyinstaller-created executable that uses a bootloader
+        # process to launch the main executable
+        if not full_path:
+            logging.debug("No full path provided to terminate similar process names")
+            return
+
+        with contextlib.suppress(psutil.NoSuchProcess):
+            for p in psutil.process_iter(["name"]):
+                if p.info["name"] == Path(full_path).name:
+                    logging.info("Terminating process with same name: %s", p.pid)
+                    p.terminate()
+
     def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:
         """
         Terminate a process and all its children recursively in a cross-platform way.
@@ -228,8 +242,10 @@ class ProcessPilot:
                     with contextlib.suppress(psutil.NoSuchProcess):
                         child.terminate()
 
-                # Then terminate parent
-                process.terminate()
+                # Then terminate parent and all processes in the same process group
+                parent.terminate()
+
+                self._terminate_similar_process_names(parent.name())
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
 
@@ -251,8 +267,17 @@ class ProcessPilot:
                     logging.warning("Process %s not found", process.pid)
 
         except (psutil.NoSuchProcess, ProcessLookupError):
-            # Process may have already terminated
-            pass
+            # Process may have already terminated, but we want to ensure we clean up
+            # any orphaned processes
+            if not isinstance(process.args, list):
+                logging.warning("Arguments to process not a list as expected.")
+                return
+
+            if len(process.args) == 0:
+                logging.warning("No arguments provided to process.")
+                return
+
+            self._terminate_similar_process_names(process.args[0])
         except Exception as e:  # noqa: BLE001
             logging.warning("Unexpected error while terminating process tree: %s", str(e))
 
@@ -360,6 +385,9 @@ class ProcessPilot:
 
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
+            self.stop()
+        except Exception as e:  # noqa: BLE001
+            logging.exception("Unexpected error in main loop: %s", str(e))
             self.stop()
 
     def start(self) -> None:
@@ -748,7 +776,7 @@ class ProcessPilot:
             if self._thread.is_alive():
                 logging.debug("Shutting down ProcessPilot...")
                 self._shutting_down = True
-                self._thread.join(5.0)  # TODO: Update this
+                # TODO: Join thread here
 
             if self._control_server:
                 logging.debug("Shutting down control server...")
@@ -790,7 +818,10 @@ class ProcessPilot:
                 logging.debug("Process %s stopped.", process_entry.name)
         finally:
             self._running_processes.clear()
-            self._shutting_down = False
+
+    def is_running(self) -> bool:
+        """Check if the ProcessPilot is currently running."""
+        return self._thread.is_alive()
 
 
 if __name__ == "__main__":

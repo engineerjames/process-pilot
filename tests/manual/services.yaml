@@ -1,0 +1,5 @@
+processes:
+  - name: example
+    path: tests/manual/dist/pyinstaller.exe
+    timeout: 1.0
+    shutdown_strategy: restart

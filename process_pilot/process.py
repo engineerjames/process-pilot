@@ -191,7 +191,7 @@ class Process(BaseModel):
     _VALID_TRANSITIONS = {
         ProcessState.STOPPED: {ProcessState.STARTING},
         ProcessState.STARTING: {ProcessState.RUNNING, ProcessState.STOPPING},
-        ProcessState.RUNNING: {ProcessState.STOPPING},
+        ProcessState.RUNNING: {ProcessState.STOPPING, ProcessState.STOPPED},
         ProcessState.STOPPING: {ProcessState.STOPPED},
     }
 
