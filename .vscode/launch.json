@@ -8,6 +8,13 @@
             "request": "launch",
             "program": "${file}",
             "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Manual Test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/manual/manual_test.py",
+            "envFile": "${workspaceFolder}/.env"
         }
     ]
 }
