@@ -1,4 +1,4 @@
-from time import sleep
+from time import sleep  # noqa: INP001
 
 if __name__ == "__main__":
     try:
