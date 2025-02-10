@@ -822,6 +822,7 @@ def mock_psutil_process() -> mock.MagicMock:
 def test_terminate_already_terminated_process(pilot: ProcessPilot, mock_sub_process: mock.MagicMock) -> None:
     """Test terminating an already terminated process."""
     mock_sub_process.pid = None
+    mock_sub_process.args = ["mock_command"]
     pilot._terminate_process_tree(mock_sub_process)
     mock_sub_process.terminate.assert_not_called()
 
@@ -837,7 +838,9 @@ def test_terminate_windows_process_tree(
     with mock.patch("psutil.wait_procs") as mock_psutil_wait_procs:
         child_process = mock.MagicMock()
         mock_psutil_instance = mock_psutil_proc.return_value
+        mock_psutil_instance.name.return_value = "test_process"
         mock_psutil_instance.children.return_value = [child_process]
+        mock_psutil_wait_procs.return_value = ([], [child_process])
 
         pilot._terminate_process_tree(mock_sub_process)
 
@@ -845,7 +848,7 @@ def test_terminate_windows_process_tree(
         child_process.terminate.assert_called_once()
 
         # Verify parent was terminated
-        mock_sub_process.terminate.assert_called_once()
+        mock_psutil_instance.terminate.assert_called_once()
 
         # Ensure that wait_procs was called
         mock_psutil_wait_procs.assert_called_once()
@@ -907,6 +910,7 @@ def test_handle_no_such_process(
 ) -> None:
     """Test handling of NoSuchProcess exception."""
     mock_psutil_proc.side_effect = psutil.NoSuchProcess(pid=12345)
+    mock_sub_process.args = ["mock_command"]
 
     # Should not raise an exception
     pilot._terminate_process_tree(mock_sub_process)
@@ -967,7 +971,7 @@ def test_windows_force_kill_after_timeout(
         child_process.terminate.assert_called_once()
 
         # Verify parent was terminated
-        mock_sub_process.terminate.assert_called_once()
+        mock_psutil_instance.terminate.assert_called_once()
 
         # Verify force kill was called after timeout
         child_process.kill.assert_called_once()

@@ -217,7 +217,7 @@ class ProcessPilot:
                     logging.info("Terminating process with same name: %s", p.pid)
                     p.terminate()
 
-    def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:
+    def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:  # noqa: C901
         """
         Terminate a process and all its children recursively in a cross-platform way.
 
@@ -386,8 +386,8 @@ class ProcessPilot:
         except KeyboardInterrupt:
             logging.warning("Detected keyboard interrupt--shutting down.")
             self.stop()
-        except Exception as e:  # noqa: BLE001
-            logging.exception("Unexpected error in main loop: %s", str(e))
+        except Exception:
+            logging.exception("Unexpected error in main loop")
             self.stop()
 
     def start(self) -> None:
