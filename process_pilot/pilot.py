@@ -29,6 +29,7 @@ from process_pilot.plugins.file_ready import FileReadyPlugin
 from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
 from process_pilot.process import Process, ProcessManifest, ProcessState, ProcessStats, ProcessStatus
+from process_pilot.shutdown_detector import ShutdownDetector
 from process_pilot.types import ProcessHookType
 
 
@@ -66,6 +67,8 @@ class ProcessPilot:
         )
 
         self._thread = threading.Thread(target=self._run)
+
+        self._shutdown_detector: ShutdownDetector | None = None
 
         # Configure the logger
         if logger_config:
@@ -414,6 +417,13 @@ class ProcessPilot:
         self._thread.start()
         if self._control_server_thread:
             self._control_server_thread.start()
+
+        # Register for OS-level shutdown/restart events
+        # Get all functions that should be called on os shutdown
+        shutdown_hooks: list[LifecycleHookType] = []
+        for process in self._manifest.processes:
+            shutdown_hooks.extend(process.lifecycle_hook_functions["on_os_shutdown_or_restart"])
+        self._shutdown_detector = ShutdownDetector()
 
     def get_manifest_processes(self) -> list[Process]:
         """Get all processes specified in the manifest."""

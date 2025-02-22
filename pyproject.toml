@@ -16,6 +16,10 @@ dependencies = [
     "psutil>=5.4.0",
     "pywin32>=300 ; sys_platform == 'win32'",
     "graphviz>=0.10",
+    "dbus-python; platform_system == 'Linux'",
+    "PyGObject; platform_system == 'Linux'",
+    "pyobjc-framework-Cocoa>=9.0; platform_system == 'Darwin'",
+    "pyobjc-framework-SystemConfiguration>=9.0; platform_system == 'Darwin'", 
 ]
 
 [project.urls]
