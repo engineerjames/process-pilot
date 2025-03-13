@@ -251,6 +251,8 @@ class ProcessPilot:
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
 
+                self._terminate_similar_process_names(parent.name(), parent.pid)
+
                 # If any processes are still alive, kill them
                 for p in alive:
                     with contextlib.suppress(psutil.NoSuchProcess):
