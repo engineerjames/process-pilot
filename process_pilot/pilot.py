@@ -199,7 +199,7 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
-    def _terminate_similar_process_names(self, full_path: str | None) -> None:
+    def _terminate_similar_process_names(self, full_path: str | None, pid: int) -> None:
          # Also, check if there are any other processes with the same process name in
          # case we are dealing with a Pyinstaller-created executable that uses a bootloader
          # process to launch the main executable
@@ -209,7 +209,7 @@ class ProcessPilot:
  
          with contextlib.suppress(psutil.NoSuchProcess):
              for p in psutil.process_iter(["name"]):
-                 if p.info["name"] == Path(full_path).name:
+                 if p.info["name"] == Path(full_path).name and p.pid != pid:
                      logging.info("Terminating process with same name: %s", p.pid)
                      p.terminate()
 
@@ -245,7 +245,7 @@ class ProcessPilot:
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
 
-                self._terminate_similar_process_names(parent.name(), parent.)
+                self._terminate_similar_process_names(parent.name(), parent.pid)
 
                 # If any processes are still alive, kill them
                 for p in alive:
