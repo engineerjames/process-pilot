@@ -199,6 +199,20 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
+    def _terminate_similar_process_names(self, full_path: str | None) -> None:
+         # Also, check if there are any other processes with the same process name in
+         # case we are dealing with a Pyinstaller-created executable that uses a bootloader
+         # process to launch the main executable
+         if not full_path:
+             logging.debug("No full path provided to terminate similar process names")
+             return
+ 
+         with contextlib.suppress(psutil.NoSuchProcess):
+             for p in psutil.process_iter(["name"]):
+                 if p.info["name"] == Path(full_path).name:
+                     logging.info("Terminating process with same name: %s", p.pid)
+                     p.terminate()
+
     def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:  # noqa: C901
         """
         Terminate a process and all its children recursively in a cross-platform way.
@@ -230,6 +244,8 @@ class ProcessPilot:
                 parent.send_signal(signal.SIGINT)
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
+
+                self._terminate_similar_process_names(parent.name(), parent.)
 
                 # If any processes are still alive, kill them
                 for p in alive:
@@ -583,6 +599,9 @@ class ProcessPilot:
         processes_to_add: list[tuple[Process, subprocess.Popen[str]]] = []
 
         for process_entry, process in self._running_processes:
+            if self._shutting_down:
+                break
+
             result = process.poll()
 
             # Process has not exited yet
