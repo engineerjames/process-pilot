@@ -59,11 +59,7 @@ class ProcessPilot:
         self._running_processes_lock = Lock()
         self._running_processes: list[tuple[Process, subprocess.Popen[str]]] = []
         self._shutting_down: bool = False
-        self._creation_flags: int = (
-            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            if platform.system() == "Windows"
-            else 0  # The default
-        )
+        self._creation_flags: int = 0
 
         self._thread = threading.Thread(target=self._run)
 
@@ -203,20 +199,6 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
-    def _terminate_similar_process_names(self, full_path: str | None) -> None:
-        # Also, check if there are any other processes with the same process name in
-        # case we are dealing with a Pyinstaller-created executable that uses a bootloader
-        # process to launch the main executable
-        if not full_path:
-            logging.debug("No full path provided to terminate similar process names")
-            return
-
-        with contextlib.suppress(psutil.NoSuchProcess):
-            for p in psutil.process_iter(["name"]):
-                if p.info["name"] == Path(full_path).name:
-                    logging.info("Terminating process with same name: %s", p.pid)
-                    p.terminate()
-
     def _terminate_process_tree(self, process: subprocess.Popen[str], timeout: float | None = None) -> None:  # noqa: C901
         """
         Terminate a process and all its children recursively in a cross-platform way.
@@ -238,14 +220,14 @@ class ProcessPilot:
                 logging.info("Found %i children for process %s", len(children), process.pid)
 
                 # First terminate children
+                # See https://learn.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals
+                # for more details, but the tl;dr is that CTRL+C = SIGINT, and CTRL+BREAK = SIGBREAK for Windows
                 for child in children:
                     with contextlib.suppress(psutil.NoSuchProcess):
-                        child.terminate()
+                        child.send_signal(signal.SIGINT)
 
                 # Then terminate parent and all processes in the same process group
-                parent.terminate()
-
-                self._terminate_similar_process_names(parent.name())
+                parent.send_signal(signal.SIGINT)
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
 
@@ -277,7 +259,6 @@ class ProcessPilot:
                 logging.warning("No arguments provided to process.")
                 return
 
-            self._terminate_similar_process_names(process.args[0])
         except Exception as e:  # noqa: BLE001
             logging.warning("Unexpected error while terminating process tree: %s", str(e))
 
@@ -828,4 +809,5 @@ if __name__ == "__main__":
     manifest = ProcessManifest.from_json(Path(__file__).parent.parent / "tests" / "examples" / "services.json")
     pilot = ProcessPilot(manifest)
 
+    pilot.start()
     pilot.start()
