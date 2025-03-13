@@ -238,14 +238,16 @@ class ProcessPilot:
                 logging.info("Found %i children for process %s", len(children), process.pid)
 
                 # First terminate children
+                # See https://learn.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals
+                # for more details, but the tl;dr is that CTRL+C = SIGINT, and CTRL+BREAK = SIGBREAK for Windows
+                #
+                # Well, then I learned the following:  [SIGTERM, CTRL_C_EVENT and CTRL_BREAK_EVENT signals are supported on Windows]
                 for child in children:
                     with contextlib.suppress(psutil.NoSuchProcess):
-                        child.terminate()
+                        child.send_signal(signal.CTRL_BREAK_EVENT)
 
                 # Then terminate parent and all processes in the same process group
-                parent.terminate()
-
-                self._terminate_similar_process_names(parent.name())
+                parent.send_signal(signal.CTRL_BREAK_EVENT)
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
 
