@@ -827,15 +827,17 @@ def test_terminate_already_terminated_process(pilot: ProcessPilot, mock_sub_proc
     mock_sub_process.terminate.assert_not_called()
 
 
-@mock.patch("platform.system", return_value="Windows")
-@mock.patch("psutil.Process")
 def test_terminate_windows_process_tree(
-    mock_psutil_proc: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
     pilot: ProcessPilot,
     mock_sub_process: mock.MagicMock,
 ) -> None:
-    with mock.patch("psutil.wait_procs") as mock_psutil_wait_procs:
+    """Test Windows-specific process tree termination."""
+    with (
+        mock.patch("sys.platform", "win32"),
+        mock.patch("signal.CTRL_BREAK_EVENT", create=True),
+        mock.patch("psutil.Process") as mock_psutil_proc,
+        mock.patch("psutil.wait_procs") as mock_psutil_wait_procs,
+    ):
         child_process = mock.MagicMock()
         mock_psutil_instance = mock_psutil_proc.return_value
         mock_psutil_instance.name.return_value = "test_process"
@@ -845,121 +847,107 @@ def test_terminate_windows_process_tree(
         pilot._terminate_process_tree(mock_sub_process)
 
         # Verify children were terminated
-        child_process.terminate.assert_called_once()
+        child_process.send_signal.assert_called_once()
 
         # Verify parent was terminated
-        mock_psutil_instance.terminate.assert_called_once()
+        mock_psutil_instance.send_signal.assert_called_once()
 
         # Ensure that wait_procs was called
         mock_psutil_wait_procs.assert_called_once()
 
 
-@mock.patch("platform.system", return_value="Linux")
-@mock.patch("os.killpg")
-@mock.patch("os.getpgid")
-@mock.patch("psutil.Process")
-def test_terminate_unix_process_group(  # noqa: PLR0913
-    mock_psutil_proc: mock.MagicMock,  # noqa: ARG001
-    mock_getpgid: mock.MagicMock,
-    mock_killpg: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
-    pilot: ProcessPilot,
-    mock_sub_process: mock.MagicMock,
-) -> None:
+def test_terminate_unix_process_group(pilot: ProcessPilot, mock_sub_process: mock.MagicMock) -> None:
     """Test Unix-specific process group termination."""
-    mock_getpgid.return_value = 12345
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch("os.killpg") as mock_killpg,
+        mock.patch("os.getpgid") as mock_getpgid,
+        mock.patch("psutil.Process"),
+    ):
+        mock_getpgid.return_value = 12345
 
-    pilot._terminate_process_tree(mock_sub_process, timeout=1.0)
+        pilot._terminate_process_tree(mock_sub_process, timeout=1.0)
 
-    # Verify SIGTERM was sent to process group
-    mock_killpg.assert_called_with(12345, signal.SIGTERM)
-    mock_sub_process.wait.assert_called_once_with(timeout=1.0)
+        # Verify SIGTERM was sent to process group
+        mock_killpg.assert_called_with(12345, signal.SIGTERM)
+        mock_sub_process.wait.assert_called_once_with(timeout=1.0)
 
 
-@mock.patch("platform.system", return_value="Linux")
-@mock.patch("os.killpg")
-@mock.patch("os.getpgid")
-@mock.patch("psutil.Process")
-def test_terminate_unix_process_timeout(  # noqa: PLR0913
-    mock_psutil_proc: mock.MagicMock,  # noqa: ARG001
-    mock_getpgid: mock.MagicMock,
-    mock_killpg: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
+def test_terminate_unix_process_timeout(
     pilot: ProcessPilot,
     mock_sub_process: mock.MagicMock,
 ) -> None:
     """Test Unix process termination with timeout."""
-    mock_getpgid.return_value = 12345
-    mock_sub_process.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=1.0)
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch("os.killpg") as mock_killpg,
+        mock.patch("os.getpgid") as mock_getpgid,
+        mock.patch("psutil.Process"),
+    ):
+        mock_getpgid.return_value = 12345
+        mock_sub_process.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=1.0)
 
-    pilot._terminate_process_tree(mock_sub_process, timeout=1.0)
+        pilot._terminate_process_tree(mock_sub_process, timeout=1.0)
 
-    # Verify SIGKILL was sent after timeout
-    assert mock_killpg.call_count == 2
-    mock_killpg.assert_any_call(12345, signal.SIGTERM)
-    mock_killpg.assert_any_call(12345, signal.SIGKILL)
+        # Verify SIGKILL was sent after timeout
+        assert mock_killpg.call_count == 2
+        mock_killpg.assert_any_call(12345, signal.SIGTERM)
+        mock_killpg.assert_any_call(12345, signal.SIGKILL)
 
 
-@mock.patch("platform.system", return_value="Linux")
-@mock.patch("psutil.Process")
 def test_handle_no_such_process(
-    mock_psutil_proc: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
     pilot: ProcessPilot,
     mock_sub_process: mock.MagicMock,
 ) -> None:
     """Test handling of NoSuchProcess exception."""
-    mock_psutil_proc.side_effect = psutil.NoSuchProcess(pid=12345)
-    mock_sub_process.args = ["mock_command"]
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch("psutil.Process", side_effect=psutil.NoSuchProcess(pid=12345)),
+    ):
+        mock_sub_process.args = ["mock_command"]
 
-    # Should not raise an exception
-    pilot._terminate_process_tree(mock_sub_process)
+        # Should not raise an exception
+        pilot._terminate_process_tree(mock_sub_process)
 
 
-@mock.patch("platform.system", return_value="Linux")
-@mock.patch("os.killpg")
-@mock.patch("os.getpgid")
-@mock.patch("psutil.Process")
-def test_handle_process_lookup_error(  # noqa: PLR0913
-    mock_psutil_proc: mock.MagicMock,  # noqa: ARG001
-    mock_getpgid: mock.MagicMock,
-    mock_killpg: mock.MagicMock,  # noqa: ARG001
-    mock_platform: mock.MagicMock,  # noqa: ARG001
-    pilot: ProcessPilot,
-    mock_sub_process: mock.MagicMock,
-) -> None:
+def test_handle_process_lookup_error(pilot: ProcessPilot, mock_sub_process: mock.MagicMock) -> None:
     """Test handling of ProcessLookupError."""
-    mock_getpgid.side_effect = ProcessLookupError()
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch("os.killpg"),
+        mock.patch("os.getpgid") as mock_getpgid,
+        mock.patch("psutil.Process"),
+    ):
+        mock_getpgid.side_effect = ProcessLookupError()
 
-    # Should not raise an exception
-    pilot._terminate_process_tree(mock_sub_process)
+        # Should not raise an exception
+        pilot._terminate_process_tree(mock_sub_process)
 
 
-@mock.patch("platform.system", return_value="Linux")
-@mock.patch("psutil.Process")
 def test_handle_generic_exception(
-    mock_psutil_proc: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
     pilot: ProcessPilot,
     mock_sub_process: mock.MagicMock,
 ) -> None:
     """Test handling of generic exceptions."""
-    mock_psutil_proc.side_effect = Exception("Unexpected error")
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch("psutil.Process", side_effect=Exception("Unexpected error")),
+    ):
+        # Should not raise an exception
+        pilot._terminate_process_tree(mock_sub_process)
 
-    # Should not raise an exception
-    pilot._terminate_process_tree(mock_sub_process)
 
-
-@mock.patch("platform.system", return_value="Windows")
-@mock.patch("psutil.Process")
 def test_windows_force_kill_after_timeout(
-    mock_psutil_proc: mock.MagicMock,
-    mock_platform: mock.MagicMock,  # noqa: ARG001
     pilot: ProcessPilot,
     mock_sub_process: mock.MagicMock,
 ) -> None:
     """Test Windows force kill after timeout."""
-    with mock.patch("psutil.wait_procs") as mock_psutil_wait_procs:
+    with (
+        mock.patch("sys.platform", "win32"),
+        mock.patch("signal.CTRL_BREAK_EVENT", create=True),
+        mock.patch("psutil.Process") as mock_psutil_proc,
+        mock.patch("psutil.wait_procs") as mock_psutil_wait_procs,
+    ):
         child_process = mock.MagicMock()
         mock_psutil_instance = mock_psutil_proc.return_value
         mock_psutil_instance.children.return_value = [child_process]
@@ -968,10 +956,10 @@ def test_windows_force_kill_after_timeout(
         pilot._terminate_process_tree(mock_sub_process, timeout=1.0)
 
         # Verify children were terminated
-        child_process.terminate.assert_called_once()
+        child_process.send_signal.assert_called_once()
 
         # Verify parent was terminated
-        mock_psutil_instance.terminate.assert_called_once()
+        mock_psutil_instance.send_signal.assert_called_once()
 
         # Verify force kill was called after timeout
         child_process.kill.assert_called_once()
