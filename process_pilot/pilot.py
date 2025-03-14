@@ -203,7 +203,7 @@ class ProcessPilot:
             else:
                 self._control_server = control_servers[self._manifest.control_server](self)
 
-    def _terminate_similar_process_names(self, full_path: str | None) -> None:
+    def _terminate_similar_process_names(self, full_path: str | None, pid: int) -> None:
         # Also, check if there are any other processes with the same process name in
         # case we are dealing with a Pyinstaller-created executable that uses a bootloader
         # process to launch the main executable
@@ -213,7 +213,7 @@ class ProcessPilot:
 
         with contextlib.suppress(psutil.NoSuchProcess):
             for p in psutil.process_iter(["name"]):
-                if p.info["name"] == Path(full_path).name:
+                if p.info["name"] == Path(full_path).name and p.pid != pid:
                     logging.info("Terminating process with same name: %s", p.pid)
                     p.terminate()
 
@@ -231,23 +231,28 @@ class ProcessPilot:
         try:
             parent = psutil.Process(process.pid)
 
-            if platform.system() == "Windows":
+            if sys.platform == "win32":
                 # On Windows, we need to handle the process tree explicitly
                 children = parent.children(recursive=True)
 
                 logging.info("Found %i children for process %s", len(children), process.pid)
 
                 # First terminate children
+                # See https://learn.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals
+                # for more details, but the tl;dr is that CTRL+C = SIGINT, and CTRL+BREAK = SIGBREAK for Windows
+                #
+                # Well, then I learned the following:
+                # [SIGTERM, CTRL_C_EVENT and CTRL_BREAK_EVENT signals are supported on Windows]
                 for child in children:
                     with contextlib.suppress(psutil.NoSuchProcess):
-                        child.terminate()
+                        child.send_signal(signal.CTRL_BREAK_EVENT)
 
                 # Then terminate parent and all processes in the same process group
-                parent.terminate()
-
-                self._terminate_similar_process_names(parent.name())
+                parent.send_signal(signal.CTRL_BREAK_EVENT)
 
                 _, alive = psutil.wait_procs([parent, *children], timeout=timeout)
+
+                self._terminate_similar_process_names(parent.name(), parent.pid)
 
                 # If any processes are still alive, kill them
                 for p in alive:
@@ -277,7 +282,7 @@ class ProcessPilot:
                 logging.warning("No arguments provided to process.")
                 return
 
-            self._terminate_similar_process_names(process.args[0])
+            self._terminate_similar_process_names(process.args[0], process.pid)
         except Exception as e:  # noqa: BLE001
             logging.warning("Unexpected error while terminating process tree: %s", str(e))
 
