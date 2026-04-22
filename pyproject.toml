@@ -1,9 +1,9 @@
 [project]
 name = "process-pilot"
-version = "0.4.6"
+version = "0.4.7"
 description = "Process manager for Python"
 authors = [{ name = "James Armes", email = "jamesleearmes@gmail.com" }]
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10"
 readme = "README.md"
 keywords = [
     "process",
@@ -14,7 +14,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml!=6.0.0,!=5.4.0,!=5.4.1",
     "psutil>=5.4.0",
-    "pywin32>=300 ; sys_platform == 'win32'",
+    "pywin32>=311 ; sys_platform == 'win32'",
     "graphviz>=0.10",
 ]
 
@@ -35,7 +35,7 @@ dev = [
     "types-pyyaml>=6.0.12.20240917,<7",
     "pytest-mock>=3.14.0,<4",
     "types-psutil>=6.1.0.20241221,<7",
-    "types-pywin32>=308.0.0.20241221,<309 ; sys_platform == 'win32'",
+    "types-pywin32>=311.0.0.20250723,<312 ; sys_platform == 'win32'",
     "pyinstaller>=6.12.0",
 ]
 docs = [
@@ -110,6 +110,6 @@ select = [
 ]
 
 [tool.pytest.ini_options]
-    log_cli = true 
-    log_cli_level = "INFO" 
+    log_cli = true
+    log_cli_level = "INFO"
     pythonpath = ["."]

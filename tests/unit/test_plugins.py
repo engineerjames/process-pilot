@@ -1,6 +1,7 @@
 import os  # noqa: INP001
 import socket
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 from subprocess import Popen
 from unittest import mock
@@ -15,6 +16,8 @@ from process_pilot.plugins.pipe_ready import PipeReadyPlugin
 from process_pilot.plugins.tcp_ready import TCPReadyPlugin
 from process_pilot.process import Process, ProcessManifest, ProcessStats
 from process_pilot.types import ProcessHookType
+
+HAS_WIN32FILE = find_spec("win32file") is not None
 
 
 # FileReadyPlugin Tests
@@ -118,7 +121,7 @@ def test_pipe_ready_plugin_unix_missing_path() -> None:
         plugin._wait_pipe_ready_unix(process, 0.1)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows specific test")
+@pytest.mark.skipif(sys.platform != "win32" or not HAS_WIN32FILE, reason="Windows pywin32-specific test")
 def test_pipe_ready_plugin_windows_success(mocker: MockerFixture) -> None:
     process = Process(
         name="test_process",
@@ -138,7 +141,7 @@ def test_pipe_ready_plugin_windows_success(mocker: MockerFixture) -> None:
     mock_win32file.assert_called_once()
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows specific test")
+@pytest.mark.skipif(sys.platform != "win32" or not HAS_WIN32FILE, reason="Windows pywin32-specific test")
 def test_pipe_ready_plugin_windows_timeout(mocker: MockerFixture) -> None:
     process = Process(
         name="test_process",
